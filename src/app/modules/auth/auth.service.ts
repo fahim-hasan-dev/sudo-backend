@@ -1,7 +1,10 @@
 import { StatusCodes } from 'http-status-codes'
 import { IAuthResponse, IResetPassword } from './auth.interface'
 import { User } from '../user/user.model'
+import { DiditKycService } from './didit.service'
 import ApiError from '../../../errors/ApiError'
+import crypto from 'crypto'
+import { logger } from '../../../shared/logger'
 import { USER_ROLES, USER_STATUS } from '../../../enum/user'
 import { AuthHelper } from './auth.helper'
 import {
@@ -65,7 +68,7 @@ export const createUser = async (payload: IUser) => {
     // 3. Send OTP email
     setTimeout(() => {
       const createAccountEmail = emailTemplate.createAccount({
-        name: `${payload.firstName} ${payload.lastName}`,
+        name: payload.fullName,
         email: payload.email,
         otp,
       })
@@ -164,13 +167,13 @@ const adminLogin = async (payload: ILoginData): Promise<IAuthResponse> => {
   const tokens = AuthHelper.createToken(
     isUserExist._id,
     isUserExist.role,
-    `${isUserExist.firstName} ${isUserExist.lastName}`,
+    isUserExist.fullName,
     isUserExist.email,
   )
 
   return authResponse(
     StatusCodes.OK,
-    `Welcome back ${isUserExist.firstName}`,
+    `Welcome back ${isUserExist.fullName}`,
     isUserExist.role,
     tokens.accessToken,
     tokens.refreshToken,
@@ -217,7 +220,7 @@ const forgetPassword = async (email?: string, phone?: string) => {
   // Send OTP to user
   if (email) {
     const forgetPasswordEmailTemplate = emailTemplate.resetPassword({
-      name: `${isUserExist.firstName} ${isUserExist.lastName}`,
+      name: isUserExist.fullName,
       email: isUserExist.email,
       otp,
     })
@@ -351,20 +354,20 @@ const verifyAccount = async (
     const tokens = AuthHelper.createToken(
       isUserExist._id,
       isUserExist.role,
-      isUserExist.firstName + ' ' + isUserExist.lastName,
+      isUserExist.fullName,
       isUserExist.email,
     )
     const userInfo = {
       id: isUserExist._id,
       role: isUserExist.role,
-      name: `${isUserExist.firstName!} ${isUserExist.lastName!}`,
+      name: isUserExist.fullName,
       email: isUserExist.email!,
       image: isUserExist.image!,
     }
 
     return authResponse(
       StatusCodes.OK,
-      `Welcome ${isUserExist.firstName} ${isUserExist.lastName} to our platform.`,
+      `Welcome ${isUserExist.fullName} to our platform.`,
       undefined,
       tokens.accessToken,
       tokens.refreshToken,
@@ -488,7 +491,7 @@ const resendOtpToPhoneOrEmail = async (
   if (email) {
     const forgetPasswordEmailTemplate = emailTemplate.resendOtp({
       email: isUserExist.email,
-      name: `${isUserExist.firstName} ${isUserExist.lastName}`,
+      name: isUserExist.fullName,
       otp,
       type: authType,
     })
@@ -600,7 +603,7 @@ const resendOtp = async (
   if (email) {
     const forgetPasswordEmailTemplate = emailTemplate.resendOtp({
       email: email,
-      name: `${isUserExist.firstName} ${isUserExist.lastName}`,
+      name: isUserExist.fullName,
       otp,
       type: authType,
     })
@@ -653,6 +656,124 @@ const changePassword = async (
   return { message: 'Password changed successfully' }
 }
 
+const createKycSession = async (user: JwtPayload) => {
+  const isExistUser = await User.findById(user.authId)
+  if (!isExistUser) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'User not found')
+  }
+
+  const sessionData = await DiditKycService.createVerificationSession(String(isExistUser._id))
+
+  // Save session ID and mark status pending
+  await User.findByIdAndUpdate(isExistUser._id, {
+    $set: {
+      kycSessionId: sessionData.sessionId,
+      kycStatus: 'pending'
+    }
+  })
+
+  return {
+    url: sessionData.url,
+    sessionId: sessionData.sessionId
+  }
+}
+
+const diditWebhook = async (payload: any, headers?: Record<string, any>) => {
+  const safePayload = payload || {};
+  const webhookSecret = config.didit.webhookSecret;
+
+  // Verify signature
+  if (webhookSecret && webhookSecret !== 'your_didit_webhook_secret_here') {
+    const signatureHeader = headers?.['x-signature-v2'] || headers?.['X-Signature-V2'];
+    if (!signatureHeader) {
+      throw new ApiError(StatusCodes.UNAUTHORIZED, 'Missing X-Signature-V2 signature header');
+    }
+
+    const isSignatureValid = DiditKycService.verifyWebhookSignature(safePayload, String(signatureHeader), webhookSecret);
+    if (!isSignatureValid) {
+      throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid webhook signature');
+    }
+  } else {
+    logger.warn('[DiditKycWebhook] DIDIT_WEBHOOK_SECRET is not configured or uses default placeholder. Skipping signature verification.');
+  }
+
+  const sessionId = safePayload.session_id || safePayload.id;
+  const verificationStatus = safePayload.status;
+  const vendorUserId = safePayload.vendor_data || safePayload.vendor_session_id;
+
+  // Find user by session ID or user ID
+  const query = sessionId ? { kycSessionId: sessionId } : { _id: vendorUserId };
+  const targetUser = await User.findOne(query);
+  
+  if (!targetUser) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'No matching user session found for the webhook');
+  }
+
+  // Map status
+  let mappedKycStatus: 'approved' | 'rejected' | 'pending' = 'pending';
+  const lowercaseStatus = String(verificationStatus || '').toLowerCase();
+  if (
+    lowercaseStatus === 'approved' ||
+    lowercaseStatus === 'completed' ||
+    lowercaseStatus === 'success'
+  ) {
+    mappedKycStatus = 'approved';
+  } else if (
+    lowercaseStatus === 'rejected' ||
+    lowercaseStatus === 'declined' ||
+    lowercaseStatus === 'failed'
+  ) {
+    mappedKycStatus = 'rejected';
+  }
+
+  const updateFields: Record<string, any> = { kycStatus: mappedKycStatus };
+
+  // Extract images
+  let documentFrontUrl = safePayload.document?.front_image;
+  let documentBackUrl = safePayload.document?.back_image;
+  let faceImageUrl = safePayload.face?.image || safePayload.face?.selfie_image || safePayload.face?.face_image;
+
+  // Fetch missing images from decision API
+  if (sessionId && (!documentFrontUrl || !documentBackUrl || !faceImageUrl)) {
+    try {
+      const sessionDecision = await DiditKycService.retrieveSessionResults(sessionId);
+      if (sessionDecision && !sessionDecision.isMock) {
+        const primaryIdVerification = sessionDecision.id_verifications?.[0];
+        const primaryLivenessCheck = sessionDecision.liveness_checks?.[0];
+        const primaryFaceMatch = sessionDecision.face_matches?.[0];
+        
+        if (primaryIdVerification) {
+          documentFrontUrl = primaryIdVerification.front_image || primaryIdVerification.front_image_url || documentFrontUrl;
+          documentBackUrl = primaryIdVerification.back_image || primaryIdVerification.back_image_url || documentBackUrl;
+        }
+        
+        if (primaryFaceMatch) {
+          faceImageUrl = primaryFaceMatch.source_image || primaryFaceMatch.source_image_url || primaryFaceMatch.target_image || primaryFaceMatch.target_image_url || faceImageUrl;
+        } else if (primaryIdVerification) {
+          faceImageUrl = primaryIdVerification.portrait_image || primaryIdVerification.portrait_image_url || faceImageUrl;
+        } else if (primaryLivenessCheck) {
+          faceImageUrl = primaryLivenessCheck.selfie_image || primaryLivenessCheck.selfie_image_url || primaryLivenessCheck.image || faceImageUrl;
+        }
+      }
+    } catch (error) {
+      logger.error('[DiditKycWebhook] Failed to query session decision API for verification images:', error);
+    }
+  }
+
+  if (documentFrontUrl) updateFields.idDocumentFront = documentFrontUrl;
+  if (documentBackUrl) updateFields.idDocumentBack = documentBackUrl;
+  if (faceImageUrl) updateFields.faceImage = faceImageUrl;
+
+  const updatedUser = await User.findByIdAndUpdate(
+    targetUser._id,
+    { $set: updateFields },
+    { new: true }
+  ).select('-password -authentication');
+
+  return updatedUser;
+}
+
+
 export const AuthServices = {
   forgetPassword,
   resetPassword,
@@ -665,5 +786,7 @@ export const AuthServices = {
   resendOtp,
   changePassword,
   createUser,
-  adminLogin
+  adminLogin,
+  createKycSession,
+  diditWebhook,
 }

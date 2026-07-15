@@ -46,5 +46,11 @@ export default {
         webhookSecret: process.env.WEBHOOK_SECRET,
         paymentSuccess: process.env.SUCCESS_URL,
         frontendUrl: process.env.FRONTEND_URL,
+    },
+    didit: {
+        apiKey: process.env.DIDIT_API_KEY,
+        baseUrl: process.env.DIDIT_BASE_URL || 'https://verification.didit.me/v3',
+        webhookSecret: process.env.DIDIT_WEBHOOK_SECRET,
+        workflowId: process.env.DIDIT_WORKFLOW_ID,
     }
 }

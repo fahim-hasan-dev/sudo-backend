@@ -413,7 +413,7 @@ const subscriptionActivatedEmail = (data: any) => {
     <tr>
       <td style="padding:25px 20px;">
         <p style="font-size:14px;color:#000;line-height:1.5;">
-          Hello <strong>${data.user.firstName}</strong>,<br>
+          Hello <strong>${data.user.fullName}</strong>,<br>
           Your subscription for <strong>${data.plan.title}</strong> has been successfully activated.
         </p>
         <p style="font-size:13px;margin:2px 0;"><strong>Amount Paid:</strong> £${data.amountPaid}</p>

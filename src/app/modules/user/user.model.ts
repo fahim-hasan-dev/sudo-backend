@@ -20,13 +20,38 @@ const UserSchema = new Schema(
             type: String,
             default: "",
         },
-        firstName: {
+        fullName: {
             type: String,
             required: true,
         },
-        lastName: {
+        phoneNumber: {
             type: String,
-            required: true,
+            default: "",
+        },
+        address: {
+            type: String,
+            default: "",
+        },
+        kycStatus: {
+            type: String,
+            enum: ["unverified", "pending", "approved", "rejected"],
+            default: "unverified",
+        },
+        idDocumentFront: {
+            type: String,
+            default: "",
+        },
+        idDocumentBack: {
+            type: String,
+            default: "",
+        },
+        faceImage: {
+            type: String,
+            default: "",
+        },
+        kycSessionId: {
+            type: String,
+            default: "",
         },
         status: {
             type: String,
@@ -94,9 +119,7 @@ const UserSchema = new Schema(
     }
 );
 
-UserSchema.virtual('fullName').get(function () {
-    return `${this.firstName} ${this.lastName}`;
-});
+
 
 UserSchema.statics.isPasswordMatched = async function (
     givenPassword: string,

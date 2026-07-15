@@ -36,7 +36,7 @@ const handleLoginLogic = async (payload: ILoginData, isUserExist: IUser):Promise
     })
 
     const otpTemplate = emailTemplate.createAccount({
-      name: `${isUserExist.firstName!} ${isUserExist.lastName!}`,
+      name: isUserExist.fullName!,
       email: isUserExist.email!,   
       otp,
     })
@@ -126,18 +126,18 @@ const handleLoginLogic = async (payload: ILoginData, isUserExist: IUser):Promise
     { new: true },
   )
 
-  const tokens = AuthHelper.createToken(isUserExist._id, isUserExist.role, `${isUserExist.firstName!} ${isUserExist.lastName!}`, isUserExist.email)
+  const tokens = AuthHelper.createToken(isUserExist._id, isUserExist.role, isUserExist.fullName!, isUserExist.email)
   const userInfo={
     id: isUserExist._id,
     role: isUserExist.role,
-    name: `${isUserExist.firstName!} ${isUserExist.lastName!}`,
+    name: isUserExist.fullName!,
     email: isUserExist.email!,
     image: isUserExist.image!,
   }
 
   return  authResponse(
   StatusCodes.OK,
-  `Welcome back ${isUserExist.firstName!} ${isUserExist.lastName!}`,
+  `Welcome back ${isUserExist.fullName!}`,
   undefined,           
   tokens.accessToken,     
   tokens.refreshToken,     

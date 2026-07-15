@@ -19,15 +19,20 @@ export type IUser = {
     email: string;
     image?: string;
     password: string;
-    firstName: string;
-    lastName: string;
+    fullName: string;
+    phoneNumber?: string;
+    address?: string;
     status: USER_STATUS;
     verified: boolean;
     role: USER_ROLES;
     authentication: IAuthentication;
     deviceToken?: string;
     fcmToken?: string;
-    fullName?: string;
+    kycStatus?: 'unverified' | 'pending' | 'approved' | 'rejected';
+    idDocumentFront?: string;
+    idDocumentBack?: string;
+    faceImage?: string;
+    kycSessionId?: string;
 };
 
 export type UserModel = {

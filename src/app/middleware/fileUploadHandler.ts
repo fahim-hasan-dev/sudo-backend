@@ -27,10 +27,15 @@ const fileUploadHandler = () => {
             let uploadDir;
             switch (file.fieldname) {
                 case 'image':
+                case 'faceImage':
                     uploadDir = path.join(baseUploadDir, 'image');
                     break;
                 case 'media':
                     uploadDir = path.join(baseUploadDir, 'media');
+                    break;
+                case 'idDocumentFront':
+                case 'idDocumentBack':
+                    uploadDir = path.join(baseUploadDir, 'kyc');
                     break;
                 default:
                     throw new ApiError(StatusCodes.BAD_REQUEST, 'File is not supported');
@@ -57,7 +62,7 @@ const fileUploadHandler = () => {
     const filterFilter = (req: Request, file: any, cb: FileFilterCallback) => {
 
         // console.log("file handler",file)
-        if (file.fieldname === 'image') {
+        if (file.fieldname === 'image' || file.fieldname === 'faceImage') {
             if (
                 file.mimetype === 'image/jpeg' ||
                 file.mimetype === 'image/png' ||
@@ -65,7 +70,7 @@ const fileUploadHandler = () => {
             ) {
                 cb(null, true);
             } else {
-                cb(new ApiError(StatusCodes.BAD_REQUEST, 'Only .jpeg, .png, .jpg file supported'))
+                cb(new ApiError(StatusCodes.BAD_REQUEST, 'Only .jpeg, .png, .jpg files are supported'))
             }
         } else if (file.fieldname === 'media') {
             if (
@@ -75,7 +80,18 @@ const fileUploadHandler = () => {
             ) {
                 cb(null, true);
             } else {
-                cb(new ApiError(StatusCodes.BAD_REQUEST, 'Only .png file supported'))
+                cb(new ApiError(StatusCodes.BAD_REQUEST, 'Only .jpeg, .png, .jpg files are supported'))
+            }
+        } else if (file.fieldname === 'idDocumentFront' || file.fieldname === 'idDocumentBack') {
+            if (
+                file.mimetype === 'image/jpeg' ||
+                file.mimetype === 'image/png' ||
+                file.mimetype === 'image/jpg' ||
+                file.mimetype === 'application/pdf'
+            ) {
+                cb(null, true);
+            } else {
+                cb(new ApiError(StatusCodes.BAD_REQUEST, 'Only .jpeg, .png, .jpg, or .pdf files are supported'))
             }
         }
 
@@ -88,6 +104,9 @@ const fileUploadHandler = () => {
         .fields([
             { name: 'image', maxCount: 3 },
             { name: 'media', maxCount: 2 },
+            { name: 'idDocumentFront', maxCount: 1 },
+            { name: 'idDocumentBack', maxCount: 1 },
+            { name: 'faceImage', maxCount: 1 },
         ]);
     return upload;
 

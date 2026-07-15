@@ -87,4 +87,17 @@ router.delete(
 router.post('/access-token', AuthController.getAccessToken)
 
 router.post('/logout', AuthController.logOut)
+
+// KYC Routes
+router.post(
+  '/create-kyc-session',
+  auth(USER_ROLES.USER, USER_ROLES.ADMIN),
+  AuthController.createKycSession,
+)
+
+router.post(
+  '/didit-webhook',
+  AuthController.diditWebhook,
+)
+
 export const AuthRoutes = router

@@ -4,6 +4,7 @@ import { AuthServices } from './auth.service'
 import sendResponse from '../../../shared/sendResponse'
 import { StatusCodes } from 'http-status-codes'
 import config from '../../../config'
+import { JwtPayload } from 'jsonwebtoken'
 
 const customLogin = catchAsync(async (req: Request, res: Response) => {
   const { ...loginData } = req.body
@@ -156,6 +157,26 @@ const logOut = catchAsync(async (req: Request, res: Response) => {
   })
 })
 
+const createKycSession = catchAsync(async (req: Request, res: Response) => {
+  const result = await AuthServices.createKycSession(req.user! as JwtPayload)
+  sendResponse(res, {
+    statusCode: StatusCodes.OK,
+    success: true,
+    message: 'KYC session initialized successfully',
+    data: result,
+  })
+})
+
+const diditWebhook = catchAsync(async (req: Request, res: Response) => {
+  const result = await AuthServices.diditWebhook(req.body, req.headers)
+  sendResponse(res, {
+    statusCode: StatusCodes.OK,
+    success: true,
+    message: 'Webhook processed successfully',
+    data: result,
+  })
+})
+
 export const AuthController = {
   forgetPassword,
   resetPassword,
@@ -167,6 +188,7 @@ export const AuthController = {
   createUser,
   deleteAccount,
   adminLogin,
-
+  createKycSession,
+  diditWebhook,
   logOut
 }

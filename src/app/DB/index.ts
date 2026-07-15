@@ -35,18 +35,13 @@ export const seedAdmin = async () => {
             return
         }
 
-        // Split name or use elegant defaults
         const adminName = config.super_admin.name || 'Admin System'
-        const nameParts = adminName.trim().split(/\s+/)
-        const firstName = nameParts[0] || 'Admin'
-        const lastName = nameParts.slice(1).join(' ') || 'System'
 
         // Construct the admin user data
         const adminData = {
             email: adminEmail,
             password: adminPassword,
-            firstName,
-            lastName,
+            fullName: adminName,
             role: USER_ROLES.ADMIN,
             verified: true,
             status: USER_STATUS.ACTIVE,
