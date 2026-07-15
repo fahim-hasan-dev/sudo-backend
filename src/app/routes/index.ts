@@ -2,6 +2,7 @@ import express from 'express';
 import handleStripeWebhook from '../../stripe/handleStripeWebhook';
 import { UserRoutes } from '../modules/user/user.route';
 import { AuthRoutes } from '../modules/auth/auth.route';
+import { StripeRoutes } from '../modules/stripe/stripe.route';
 import { CategoryRoutes } from '../modules/category/category.route';
 import { ReviewRoutes } from '../modules/review/review.route';
 import { PaymentRoutes } from '../modules/payment/payment.route';
@@ -19,6 +20,7 @@ const router = express.Router();
 const apiRoutes = [
     { path: "/user", route: UserRoutes },
     { path: "/auth", route: AuthRoutes },
+    { path: "/stripe", route: StripeRoutes },
     { path: "/category", route: CategoryRoutes },
     { path: "/review", route: ReviewRoutes },
     { path: "/payment", route: PaymentRoutes },

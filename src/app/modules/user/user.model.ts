@@ -53,6 +53,14 @@ const UserSchema = new Schema(
             type: String,
             default: "",
         },
+        stripeAccountId: {
+            type: String,
+            default: "",
+        },
+        stripeConnected: {
+            type: Boolean,
+            default: false,
+        },
         status: {
             type: String,
             enum: ["active", "restricted", "deleted"],

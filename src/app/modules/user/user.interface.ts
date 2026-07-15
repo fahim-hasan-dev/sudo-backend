@@ -33,6 +33,8 @@ export type IUser = {
     idDocumentBack?: string;
     faceImage?: string;
     kycSessionId?: string;
+    stripeAccountId?: string;
+    stripeConnected?: boolean;
 };
 
 export type UserModel = {
