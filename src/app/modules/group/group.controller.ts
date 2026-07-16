@@ -34,12 +34,25 @@ const joinGroup = catchAsync(async (req: Request, res: Response) => {
 // Controller to start group rotation schedule
 const startGroupRotation = catchAsync(async (req: Request, res: Response) => {
   const user = req.user as JwtPayload;
-  const result = await GroupService.startGroupRotation(user.id, req.params.id);
+  const result = await GroupService.startGroupRotation(user.id, user.role, req.params.id);
 
   sendResponse(res, {
     statusCode: StatusCodes.OK,
     success: true,
     message: 'Group rotation schedule activated successfully',
+    data: result,
+  });
+});
+
+// Controller to pause group activities
+const pauseGroup = catchAsync(async (req: Request, res: Response) => {
+  const user = req.user as JwtPayload;
+  const result = await GroupService.pauseGroup(user.id, user.role, req.params.id);
+
+  sendResponse(res, {
+    statusCode: StatusCodes.OK,
+    success: true,
+    message: 'Group activities paused successfully',
     data: result,
   });
 });
@@ -108,6 +121,32 @@ const getUserGroups = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+// Controller to leave a group
+const leaveGroup = catchAsync(async (req: Request, res: Response) => {
+  const user = req.user as JwtPayload;
+  const result = await GroupService.leaveGroup(user.id, req.params.id);
+
+  sendResponse(res, {
+    statusCode: StatusCodes.OK,
+    success: true,
+    message: 'Left group successfully',
+    data: result,
+  });
+});
+
+// Controller to update group configuration
+const updateGroup = catchAsync(async (req: Request, res: Response) => {
+  const user = req.user as JwtPayload;
+  const result = await GroupService.updateGroup(user.id, user.role, req.params.id, req.body);
+
+  sendResponse(res, {
+    statusCode: StatusCodes.OK,
+    success: true,
+    message: 'Group configurations updated successfully',
+    data: result,
+  });
+});
+
 export const GroupController = {
   createGroup,
   joinGroup,
@@ -117,4 +156,7 @@ export const GroupController = {
   getGroupDetails,
   getAllGroups,
   getUserGroups,
+  pauseGroup,
+  leaveGroup,
+  updateGroup,
 };

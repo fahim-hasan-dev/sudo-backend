@@ -39,7 +39,10 @@ const handleStripeWebhook = async (req: Request, res: Response) => {
                 if (mode === 'payment') {
                     if (session.metadata?.groupId) {
                         // Confirm group savings contribution
-                        await GroupService.confirmContributionPayment(session.id);
+                        await GroupService.confirmContributionPayment(
+                            session.id,
+                            session.payment_intent as string || session.id
+                        );
                     } else {
                         // Handle standard one-time payment
                         await Payment.create({

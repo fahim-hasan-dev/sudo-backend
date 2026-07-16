@@ -13,6 +13,7 @@ const ContributionSchema = new Schema<IContribution>(
     stripeSessionId: { type: String, required: true, trim: true },
     status: { type: String, enum: ['unpaid', 'paid', 'failed'], default: 'unpaid', required: true },
     paymentDate: { type: Date },
+    transactionId: { type: String },
   },
   { timestamps: true }
 );

@@ -12,6 +12,7 @@ export type IContribution = {
   stripeSessionId: string;
   status: 'unpaid' | 'paid' | 'failed';
   paymentDate?: Date;
+  transactionId?: string;
   createdAt: Date;
   updatedAt: Date;
 };

@@ -15,11 +15,12 @@ export type IGroup = {
   contributionAmount: number;
   targetPoolAmount: number;
   paymentFrequency: 'weekly' | 'monthly' | 'quarterly';
+  quarterlyIntervalMonths?: number;
   totalCycles: number;
   startDate: Date;
   visibility: 'private' | 'public';
   members: Types.ObjectId[];
-  status: 'pending' | 'active' | 'completed';
+  status: 'pending' | 'active' | 'paused' | 'completed';
   rotationSchedule: IRotationSchedule[];
   createdAt: Date;
   updatedAt: Date;

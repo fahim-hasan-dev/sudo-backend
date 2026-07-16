@@ -6,7 +6,7 @@ import { StripeRoutes } from '../modules/stripe/stripe.route';
 import { GroupRoutes } from '../modules/group/group.route';
 import { ContributionRoutes } from '../modules/contribution/contribution.route';
 import { GroupMessageRoutes } from '../modules/group-message/group-message.route';
-import { CategoryRoutes } from '../modules/category/category.route';
+import { GroupInvitationRoutes } from '../modules/group-invitation/group-invitation.route';
 import { ReviewRoutes } from '../modules/review/review.route';
 import { PaymentRoutes } from '../modules/payment/payment.route';
 import { PublicRoutes } from '../modules/public/public.route';
@@ -25,7 +25,7 @@ const apiRoutes = [
     { path: "/group", route: GroupRoutes },
     { path: "/contribution", route: ContributionRoutes },
     { path: "/group-message", route: GroupMessageRoutes },
-    { path: "/category", route: CategoryRoutes },
+    { path: "/group-invitation", route: GroupInvitationRoutes },
     { path: "/review", route: ReviewRoutes },
     { path: "/payment", route: PaymentRoutes },
     { path: "/public", route: PublicRoutes },

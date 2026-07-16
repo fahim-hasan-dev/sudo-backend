@@ -26,11 +26,25 @@ router.post(
   GroupController.joinGroup
 );
 
+// Leave existing group
+router.post(
+  '/leave/:id',
+  auth(USER_ROLES.USER, USER_ROLES.ADMIN),
+  GroupController.leaveGroup
+);
+
 // Start group rotation schedule
 router.post(
   '/start/:id',
   auth(USER_ROLES.USER, USER_ROLES.ADMIN),
   GroupController.startGroupRotation
+);
+
+// Pause group rotation schedule
+router.post(
+  '/pause/:id',
+  auth(USER_ROLES.USER, USER_ROLES.ADMIN),
+  GroupController.pauseGroup
 );
 
 // Pay contribution for current period
@@ -52,6 +66,13 @@ router.get(
   '/:id',
   auth(USER_ROLES.USER, USER_ROLES.ADMIN),
   GroupController.getGroupDetails
+);
+
+// Update group configuration (only allowed in pending status)
+router.patch(
+  '/:id',
+  auth(USER_ROLES.USER, USER_ROLES.ADMIN),
+  GroupController.updateGroup
 );
 
 // Get all groups (admin sees public/private, user sees public only)

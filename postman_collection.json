@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "sudo-backend-somiti-collection",
     "name": "Sudo Backend - Group, Contribution & Chat API",
-    "description": "Postman API Collection for Sudo Backend containing Group, Contribution, and Group Message modules.",
+    "description": "Postman API Collection for Sudo Backend containing Group, Contribution, Group Message, and Group Invitation modules.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -49,6 +49,52 @@
           "response": []
         },
         {
+          "name": "Update Group Configuration",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Family Savings Group (Updated)\",\n  \"contributionAmount\": 250\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/group/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "group",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "group_mongodb_id_here",
+                  "description": "MongoDB ID of the target group to update"
+                }
+              ]
+            },
+            "description": "Update group configuration metadata. Allowed only while group status is pending. Once rotation starts (active, paused, completed), editing is strictly blocked for both admins and users."
+          },
+          "response": []
+        },
+        {
           "name": "Join Group",
           "request": {
             "method": "POST",
@@ -77,7 +123,40 @@
                 }
               ]
             },
-            "description": "Join an existing pending group. Member must have completed Stripe connect onboarding."
+            "description": "Join an existing pending group. Restricted to public groups. Member must have completed Stripe connect onboarding."
+          },
+          "response": []
+        },
+        {
+          "name": "Leave Group",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/group/leave/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "group",
+                "leave",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "group_mongodb_id_here",
+                  "description": "MongoDB ID of the target group to leave"
+                }
+              ]
+            },
+            "description": "Leave a savings group. Allowed only while group status is pending. If group admin leaves, the next member becomes admin. If no members left, the group is deleted."
           },
           "response": []
         },
@@ -110,7 +189,40 @@
                 }
               ]
             },
-            "description": "Activate the group and generate the cyclic rotation schedule (Only Group Admin can perform this once the group is full)."
+            "description": "Activate the group and generate the cyclic rotation schedule, or resume group activities if paused (Only Group Admin or system Admin can perform this)."
+          },
+          "response": []
+        },
+        {
+          "name": "Pause Group Rotation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/group/pause/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "group",
+                "pause",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "group_mongodb_id_here",
+                  "description": "MongoDB ID of the target group to pause"
+                }
+              ]
+            },
+            "description": "Pause group rotation activities. Only Group Admin or system Admin can call this, and it is only allowed if the running period is completed (fully paid)."
           },
           "response": []
         },
@@ -486,6 +598,122 @@
               ]
             },
             "description": "Delete a group message (Restricted to message sender or group admin)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Group Invitation Module",
+      "item": [
+        {
+          "name": "Send Group Invitation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"groupId\": \"group_mongodb_id_here\",\n  \"receiverId\": \"user_mongodb_id_to_invite_here\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/group-invitation/send",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "group-invitation",
+                "send"
+              ]
+            },
+            "description": "Send an invitation to join a pending savings group. Only group members can invite others, and group slots must be available."
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Invitations",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/group-invitation/my-invitations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "group-invitation",
+                "my-invitations"
+              ]
+            },
+            "description": "Retrieve all active pending group invitations addressed to the logged-in user."
+          },
+          "response": []
+        },
+        {
+          "name": "Respond to Invitation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"accept\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/group-invitation/respond/:invitationId",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "group-invitation",
+                "respond",
+                ":invitationId"
+              ],
+              "variable": [
+                {
+                  "key": "invitationId",
+                  "value": "invitation_mongodb_id_here",
+                  "description": "MongoDB ID of the target invitation"
+                }
+              ]
+            },
+            "description": "Respond to an invitation. Action values include 'accept' or 'decline'. Accepting joins the user to the group, requiring Stripe Connect setup."
           },
           "response": []
         }

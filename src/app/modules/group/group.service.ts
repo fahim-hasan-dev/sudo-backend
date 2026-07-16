@@ -29,7 +29,8 @@ const getCurrentPeriodNumber = (group: IGroup): number => {
     if (group.paymentFrequency === 'monthly') {
       elapsedPeriods = monthDiff;
     } else if (group.paymentFrequency === 'quarterly') {
-      elapsedPeriods = Math.floor(monthDiff / 3);
+      const interval = group.quarterlyIntervalMonths || 3;
+      elapsedPeriods = Math.floor(monthDiff / interval);
     }
   }
 
@@ -62,7 +63,7 @@ const createGroup = async (userId: string, groupData: Partial<IGroup>) => {
   return newGroup;
 };
 
-// Join a savings group
+// Join a savings group (restricted to public groups)
 const joinGroup = async (userId: string, groupId: string) => {
   const user = await User.findById(userId);
   if (!user) {
@@ -80,6 +81,11 @@ const joinGroup = async (userId: string, groupId: string) => {
   const group = await Group.findById(groupId);
   if (!group) {
     throw new ApiError(StatusCodes.NOT_FOUND, 'Group not found');
+  }
+
+  // Enforce visibility restriction
+  if (group.visibility === 'private') {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'This group is private. You can only join via invitation.');
   }
 
   if (group.status !== 'pending') {
@@ -109,15 +115,58 @@ const joinGroup = async (userId: string, groupId: string) => {
   return updatedGroup;
 };
 
-// Generate schedule and activate rotation
-const startGroupRotation = async (userId: string, groupId: string) => {
+// Generate schedule and activate rotation (or resume from paused status)
+const startGroupRotation = async (userId: string, role: string, groupId: string) => {
   const group = await Group.findById(groupId);
   if (!group) {
     throw new ApiError(StatusCodes.NOT_FOUND, 'Group not found');
   }
 
-  if (String(group.admin) !== userId) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Only group admin can start the rotation');
+  // Only Group Admin or system Admin can perform this action
+  if (String(group.admin) !== userId && role !== 'admin') {
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Only group admin or system admin can start or resume group activities');
+  }
+
+  // Handle Resuming from Paused state
+  if (group.status === 'paused') {
+    const now = new Date();
+    let shiftCount = 0;
+    
+    // Shift all remaining pending periods to start from today
+    const updatedSchedule = group.rotationSchedule.map((period) => {
+      if (period.status === 'pending') {
+        const newPayoutDate = new Date(now);
+        if (group.paymentFrequency === 'weekly') {
+          newPayoutDate.setDate(now.getDate() + shiftCount * 7);
+        } else if (group.paymentFrequency === 'monthly') {
+          newPayoutDate.setMonth(now.getMonth() + shiftCount);
+        } else if (group.paymentFrequency === 'quarterly') {
+          const interval = group.quarterlyIntervalMonths || 3;
+          newPayoutDate.setMonth(now.getMonth() + shiftCount * interval);
+        }
+        shiftCount++;
+        return {
+          periodNumber: period.periodNumber,
+          cycleNumber: period.cycleNumber,
+          receiverId: period.receiverId,
+          payoutDate: newPayoutDate,
+          status: period.status,
+        };
+      }
+      return period;
+    });
+
+    const resumedGroup = await Group.findByIdAndUpdate(
+      groupId,
+      {
+        $set: {
+          status: 'active',
+          rotationSchedule: updatedSchedule,
+        },
+      },
+      { new: true }
+    );
+    return resumedGroup;
   }
 
   if (group.status !== 'pending') {
@@ -140,20 +189,22 @@ const startGroupRotation = async (userId: string, groupId: string) => {
 
   const schedule = [];
   const totalPeriods = group.totalCycles * totalMembers;
+  const actualStartTime = new Date();
 
-  // Build rotation schedule in cyclic order
+  // Build rotation schedule starting from the actual activation date
   for (let period = 1; period <= totalPeriods; period++) {
     const cycle = Math.ceil(period / totalMembers);
     const receiverIndex = (period - 1) % totalMembers;
     const receiverId = group.members[receiverIndex];
 
-    const payoutDate = new Date(group.startDate);
+    const payoutDate = new Date(actualStartTime);
     if (group.paymentFrequency === 'weekly') {
       payoutDate.setDate(payoutDate.getDate() + (period - 1) * 7);
     } else if (group.paymentFrequency === 'monthly') {
       payoutDate.setMonth(payoutDate.getMonth() + (period - 1));
     } else if (group.paymentFrequency === 'quarterly') {
-      payoutDate.setMonth(payoutDate.getMonth() + (period - 1) * 3);
+      const interval = group.quarterlyIntervalMonths || 3;
+      payoutDate.setMonth(payoutDate.getMonth() + (period - 1) * interval);
     }
 
     schedule.push({
@@ -170,6 +221,7 @@ const startGroupRotation = async (userId: string, groupId: string) => {
     {
       $set: {
         status: 'active',
+        startDate: actualStartTime, // Reset expected start date to actual start date
         rotationSchedule: schedule,
       },
     },
@@ -177,6 +229,47 @@ const startGroupRotation = async (userId: string, groupId: string) => {
   );
 
   return activatedGroup;
+};
+
+// Pause group activities (only allowed if current period/cycle is fully paid/completed)
+const pauseGroup = async (userId: string, role: string, groupId: string) => {
+  const group = await Group.findById(groupId);
+  if (!group) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Group not found');
+  }
+
+  // Only Group Admin or system Admin can perform this action
+  if (String(group.admin) !== userId && role !== 'admin') {
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Only group admin or system admin can pause group activities');
+  }
+
+  if (group.status !== 'active') {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Only active groups can be paused');
+  }
+
+  // Find the currently active period index
+  const currentPeriodNum = getCurrentPeriodNumber(group);
+  const currentPeriodItem = group.rotationSchedule.find(
+    (p) => p.periodNumber === currentPeriodNum
+  );
+
+  // Can only pause if the running cycle/period has been fully completed (paid)
+  if (!currentPeriodItem || currentPeriodItem.status !== 'completed') {
+    throw new ApiError(
+      StatusCodes.BAD_REQUEST,
+      'Cannot pause group during a running period. All members must complete their payments for the current period first.'
+    );
+  }
+
+  const pausedGroup = await Group.findByIdAndUpdate(
+    groupId,
+    {
+      $set: { status: 'paused' },
+    },
+    { new: true }
+  );
+
+  return pausedGroup;
 };
 
 // Initialize contribution payment with direct transfer to the scheduled receiver
@@ -286,7 +379,7 @@ const payContribution = async (userId: string, groupId: string) => {
 };
 
 // Confirm payment via Stripe webhook callback
-const confirmContributionPayment = async (stripeSessionId: string) => {
+const confirmContributionPayment = async (stripeSessionId: string, transactionId: string) => {
   const contribution = await Contribution.findOne({ stripeSessionId });
   if (!contribution) return;
 
@@ -296,6 +389,7 @@ const confirmContributionPayment = async (stripeSessionId: string) => {
     $set: {
       status: 'paid',
       paymentDate: new Date(),
+      transactionId,
     },
   });
 
@@ -513,6 +607,104 @@ const getUserGroups = async (userId: string) => {
   return result;
 };
 
+// Leave/Exit a group (only allowed when group status is pending)
+const leaveGroup = async (userId: string, groupId: string) => {
+  const group = await Group.findById(groupId);
+  if (!group) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Group not found');
+  }
+
+  // Only allowed to leave if the group status is pending
+  if (group.status !== 'pending') {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Cannot leave an active, paused, or completed group');
+  }
+
+  const isMember = group.members.some((memberId) => String(memberId) === userId);
+  if (!isMember) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'You are not a member of this group');
+  }
+
+  // If the user is the admin/creator
+  if (String(group.admin) === userId) {
+    // If they are the only member, delete the group entirely
+    if (group.members.length <= 1) {
+      await Group.findByIdAndDelete(groupId);
+      return { deleted: true };
+    } else {
+      // If there are other members, assign a new admin (first other member)
+      const remainingMembers = group.members.filter((memberId) => String(memberId) !== userId);
+      const newAdmin = remainingMembers[0];
+      
+      const updatedGroup = await Group.findByIdAndUpdate(
+        groupId,
+        {
+          $pull: { members: new Types.ObjectId(userId) },
+          $set: { admin: newAdmin },
+        },
+        { new: true }
+      );
+      return updatedGroup;
+    }
+  }
+
+  const updatedGroup = await Group.findByIdAndUpdate(
+    groupId,
+    {
+      $pull: { members: new Types.ObjectId(userId) },
+    },
+    { new: true }
+  );
+
+  return updatedGroup;
+};
+
+// Update/Edit group configuration (only allowed while group is in pending status)
+const updateGroup = async (userId: string, role: string, groupId: string, updateData: Partial<IGroup>) => {
+  const group = await Group.findById(groupId);
+  if (!group) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Group not found');
+  }
+
+  // Only Group Admin or system Admin can perform this action
+  if (String(group.admin) !== userId && role !== 'admin') {
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Only group admin or system admin can edit group configurations');
+  }
+
+  // Strictly restrict editing if group has started, paused, or completed
+  if (group.status !== 'pending') {
+    throw new ApiError(
+      StatusCodes.BAD_REQUEST,
+      `Cannot edit group configurations once activities have started (Current status: ${group.status})`
+    );
+  }
+
+  // Filter allowed fields for update
+  const allowedUpdates = [
+    'name',
+    'contributionAmount',
+    'targetPoolAmount',
+    'paymentFrequency',
+    'quarterlyIntervalMonths',
+    'startDate',
+    'visibility',
+  ];
+
+  const filteredUpdates: Record<string, any> = {};
+  for (const key of allowedUpdates) {
+    if (updateData[key as keyof IGroup] !== undefined) {
+      filteredUpdates[key] = updateData[key as keyof IGroup];
+    }
+  }
+
+  const updatedGroup = await Group.findByIdAndUpdate(
+    groupId,
+    { $set: filteredUpdates },
+    { new: true }
+  ).populate('admin', 'fullName email').populate('members', 'fullName email');
+
+  return updatedGroup;
+};
+
 export const GroupService = {
   createGroup,
   joinGroup,
@@ -524,4 +716,7 @@ export const GroupService = {
   getCurrentPeriodNumber,
   getAllGroups,
   getUserGroups,
+  pauseGroup,
+  leaveGroup,
+  updateGroup,
 };
