@@ -10,7 +10,7 @@ const getUserContributionHistory = catchAsync(async (req: Request, res: Response
   const user = req.user as JwtPayload;
   const { type, groupId } = req.query;
 
-  const result = await ContributionService.getUserContributionHistory(user.id, {
+  const result = await ContributionService.getUserContributionHistory(user.authId, {
     type: type as 'paid' | 'received' | 'all',
     groupId: groupId as string,
   });
@@ -26,7 +26,7 @@ const getUserContributionHistory = catchAsync(async (req: Request, res: Response
 // Controller to get user's outstanding dues (current and overdue)
 const getUserOutstandingContributions = catchAsync(async (req: Request, res: Response) => {
   const user = req.user as JwtPayload;
-  const result = await ContributionService.getUserOutstandingContributions(user.id);
+  const result = await ContributionService.getUserOutstandingContributions(user.authId);
 
   sendResponse(res, {
     statusCode: StatusCodes.OK,

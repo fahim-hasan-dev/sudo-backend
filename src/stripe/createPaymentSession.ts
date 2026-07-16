@@ -21,7 +21,7 @@ export const createPaymentSession = async (user: JwtPayload, amount: number, ref
         cancel_url: `${config.stripe.frontendUrl}/payment/cancel`,
         customer_email: user.email,
         metadata: {
-            userId: user.id || (user as any).authId,
+            userId: user.authId,
             referenceId: referenceId
         },
     });

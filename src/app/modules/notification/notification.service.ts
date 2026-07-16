@@ -51,18 +51,18 @@ const insertNotification = async (payload: Partial<INotification>): Promise<INot
 
 // get notifications
 const getNotificationFromDB = async (user: JwtPayload, query: FilterQuery<any>): Promise<Object> => {
-    const result = new QueryBuilder(Notification.find({ receiver: user.id }), query).paginate();
+    const result = new QueryBuilder(Notification.find({ receiver: user.authId }), query).paginate();
     const notifications = await result.modelQuery;
     const pagination = await result.getPaginationInfo();
 
     const unreadCount = await Notification.countDocuments({
-        receiver: user.id,
+        receiver: user.authId,
         read: false,
     });
 
     // Mark all unread notifications for this user as read
     await Notification.updateMany(
-        { receiver: user.id, read: false },
+        { receiver: user.authId, read: false },
         { $set: { read: true } }
     );
 
@@ -78,7 +78,7 @@ const getNotificationFromDB = async (user: JwtPayload, query: FilterQuery<any>):
 // get unread notification count
 const getUnreadCountFromDB = async (user: JwtPayload): Promise<number> => {
     const count = await Notification.countDocuments({
-        receiver: user.id,
+        receiver: user.authId,
         read: false,
     });
     return count;

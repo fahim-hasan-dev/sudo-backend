@@ -8,7 +8,7 @@ import { JwtPayload } from 'jsonwebtoken';
 // Controller to create a new group
 const createGroup = catchAsync(async (req: Request, res: Response) => {
   const user = req.user as JwtPayload;
-  const result = await GroupService.createGroup(user.id, req.body);
+  const result = await GroupService.createGroup(user.authId, req.body);
 
   sendResponse(res, {
     statusCode: StatusCodes.CREATED,
@@ -21,7 +21,7 @@ const createGroup = catchAsync(async (req: Request, res: Response) => {
 // Controller to join a group
 const joinGroup = catchAsync(async (req: Request, res: Response) => {
   const user = req.user as JwtPayload;
-  const result = await GroupService.joinGroup(user.id, req.params.id);
+  const result = await GroupService.joinGroup(user.authId, req.params.id);
 
   sendResponse(res, {
     statusCode: StatusCodes.OK,
@@ -34,7 +34,7 @@ const joinGroup = catchAsync(async (req: Request, res: Response) => {
 // Controller to start group rotation schedule
 const startGroupRotation = catchAsync(async (req: Request, res: Response) => {
   const user = req.user as JwtPayload;
-  const result = await GroupService.startGroupRotation(user.id, user.role, req.params.id);
+  const result = await GroupService.startGroupRotation(user.authId, user.role, req.params.id);
 
   sendResponse(res, {
     statusCode: StatusCodes.OK,
@@ -47,7 +47,7 @@ const startGroupRotation = catchAsync(async (req: Request, res: Response) => {
 // Controller to pause group activities
 const pauseGroup = catchAsync(async (req: Request, res: Response) => {
   const user = req.user as JwtPayload;
-  const result = await GroupService.pauseGroup(user.id, user.role, req.params.id);
+  const result = await GroupService.pauseGroup(user.authId, user.role, req.params.id);
 
   sendResponse(res, {
     statusCode: StatusCodes.OK,
@@ -60,7 +60,7 @@ const pauseGroup = catchAsync(async (req: Request, res: Response) => {
 // Controller to pay contribution for current period
 const payContribution = catchAsync(async (req: Request, res: Response) => {
   const user = req.user as JwtPayload;
-  const result = await GroupService.payContribution(user.id, req.params.id);
+  const result = await GroupService.payContribution(user.authId, req.params.id);
 
   sendResponse(res, {
     statusCode: StatusCodes.OK,
@@ -85,7 +85,7 @@ const trackGroupPayments = catchAsync(async (req: Request, res: Response) => {
 // Controller to get group details
 const getGroupDetails = catchAsync(async (req: Request, res: Response) => {
   const user = req.user as JwtPayload;
-  const result = await GroupService.getGroupDetails(req.params.id, user.id);
+  const result = await GroupService.getGroupDetails(req.params.id, user.authId);
 
   sendResponse(res, {
     statusCode: StatusCodes.OK,
@@ -98,7 +98,7 @@ const getGroupDetails = catchAsync(async (req: Request, res: Response) => {
 // Controller to query all groups (admin sees all, user sees public only)
 const getAllGroups = catchAsync(async (req: Request, res: Response) => {
   const user = req.user as JwtPayload;
-  const result = await GroupService.getAllGroups(user.id, user.role, req.query);
+  const result = await GroupService.getAllGroups(user.authId, user.role, req.query);
 
   sendResponse(res, {
     statusCode: StatusCodes.OK,
@@ -111,7 +111,7 @@ const getAllGroups = catchAsync(async (req: Request, res: Response) => {
 // Controller to retrieve groups that the authenticated user belongs to
 const getUserGroups = catchAsync(async (req: Request, res: Response) => {
   const user = req.user as JwtPayload;
-  const result = await GroupService.getUserGroups(user.id);
+  const result = await GroupService.getUserGroups(user.authId);
 
   sendResponse(res, {
     statusCode: StatusCodes.OK,
@@ -124,7 +124,7 @@ const getUserGroups = catchAsync(async (req: Request, res: Response) => {
 // Controller to leave a group
 const leaveGroup = catchAsync(async (req: Request, res: Response) => {
   const user = req.user as JwtPayload;
-  const result = await GroupService.leaveGroup(user.id, req.params.id);
+  const result = await GroupService.leaveGroup(user.authId, req.params.id);
 
   sendResponse(res, {
     statusCode: StatusCodes.OK,
@@ -137,12 +137,25 @@ const leaveGroup = catchAsync(async (req: Request, res: Response) => {
 // Controller to update group configuration
 const updateGroup = catchAsync(async (req: Request, res: Response) => {
   const user = req.user as JwtPayload;
-  const result = await GroupService.updateGroup(user.id, user.role, req.params.id, req.body);
+  const result = await GroupService.updateGroup(user.authId, user.role, req.params.id, req.body);
 
   sendResponse(res, {
     statusCode: StatusCodes.OK,
     success: true,
     message: 'Group configurations updated successfully',
+    data: result,
+  });
+});
+
+// Controller to retrieve member status list and payment history for a specific period
+const getGroupPeriodHistory = catchAsync(async (req: Request, res: Response) => {
+  const periodNumber = req.query.periodNumber ? Number(req.query.periodNumber) : undefined;
+  const result = await GroupService.getGroupPeriodHistory(req.params.id, periodNumber);
+
+  sendResponse(res, {
+    statusCode: StatusCodes.OK,
+    success: true,
+    message: 'Group period payment history retrieved successfully',
     data: result,
   });
 });
@@ -159,4 +172,5 @@ export const GroupController = {
   pauseGroup,
   leaveGroup,
   updateGroup,
+  getGroupPeriodHistory,
 };

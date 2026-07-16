@@ -45,7 +45,7 @@ const socket = async (io: Server) => {
   chatNamespace.use(verifySocketToken);
 
   chatNamespace.on('connection', (socket: Socket) => {
-    const userId = socket.data.user.id;
+    const userId = socket.data.user.authId;
     logger.info(colors.blue(`💬 User ${userId} connected to /chat namespace`));
 
     // Join a group room
@@ -86,7 +86,7 @@ const socket = async (io: Server) => {
   notificationNamespace.use(verifySocketToken);
 
   notificationNamespace.on('connection', (socket: Socket) => {
-    const userId = socket.data.user.id;
+    const userId = socket.data.user.authId;
     logger.info(colors.magenta(`🔔 User ${userId} connected to /notification namespace`));
 
     // Join user's individual room for personal notifications

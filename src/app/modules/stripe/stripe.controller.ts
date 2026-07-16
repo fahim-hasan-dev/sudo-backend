@@ -8,7 +8,7 @@ import { JwtPayload } from 'jsonwebtoken';
 // Controller to initialize Stripe Connect onboarding session
 const createConnectedAccount = catchAsync(async (req: Request, res: Response) => {
   const user = req.user as JwtPayload;
-  const result = await StripeService.createExpressConnectedAccount(user.id);
+  const result = await StripeService.createExpressConnectedAccount(user.authId);
 
   sendResponse(res, {
     statusCode: StatusCodes.OK,
@@ -21,7 +21,7 @@ const createConnectedAccount = catchAsync(async (req: Request, res: Response) =>
 // Controller to check connected account onboarding status
 const checkConnectedAccountStatus = catchAsync(async (req: Request, res: Response) => {
   const user = req.user as JwtPayload;
-  const result = await StripeService.checkConnectedAccountStatus(user.id);
+  const result = await StripeService.checkConnectedAccountStatus(user.authId);
 
   sendResponse(res, {
     statusCode: StatusCodes.OK,
@@ -34,7 +34,7 @@ const checkConnectedAccountStatus = catchAsync(async (req: Request, res: Respons
 // Controller to retrieve Stripe dashboard login link
 const createExpressDashboardLink = catchAsync(async (req: Request, res: Response) => {
   const user = req.user as JwtPayload;
-  const result = await StripeService.createExpressDashboardLink(user.id);
+  const result = await StripeService.createExpressDashboardLink(user.authId);
 
   sendResponse(res, {
     statusCode: StatusCodes.OK,

@@ -227,6 +227,46 @@
           "response": []
         },
         {
+          "name": "Get Group Period History",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/group/period-history/:id?periodNumber=2",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "group",
+                "period-history",
+                ":id"
+              ],
+              "query": [
+                {
+                  "key": "periodNumber",
+                  "value": "2",
+                  "description": "Optional: Specific period number to query. If omitted, defaults to the current active period."
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "group_mongodb_id_here",
+                  "description": "MongoDB ID of the target group"
+                }
+              ]
+            },
+            "description": "Retrieve group member list and their payment status ('paid', 'pending', 'receiver') for a specific period/cycle. Ideal for details page status widgets."
+          },
+          "response": []
+        },
+        {
           "name": "Get Single Group",
           "request": {
             "method": "GET",
@@ -254,7 +294,7 @@
                 }
               ]
             },
-            "description": "Retrieve comprehensive group configurations, populated member details, current period information, current receiver, and full rotation schedule."
+            "description": "Retrieve comprehensive group configurations, current period information, current receiver, and full rotation schedule (without massive member population to optimize payload size)."
           },
           "response": []
         },

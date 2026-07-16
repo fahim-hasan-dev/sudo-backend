@@ -482,9 +482,7 @@ const trackGroupPayments = async (groupId: string) => {
 // Get basic details and active rotation status for a single group
 const getGroupDetails = async (groupId: string, userId: string) => {
   const group = await Group.findById(groupId)
-    .populate('members', 'fullName email image stripeConnected')
-    .populate('admin', 'fullName email')
-    .populate('rotationSchedule.receiverId', 'fullName email image');
+    .populate('admin', 'fullName email');
 
   if (!group) {
     throw new ApiError(StatusCodes.NOT_FOUND, 'Group not found');
@@ -510,7 +508,9 @@ const getGroupDetails = async (groupId: string, userId: string) => {
     );
     if (currentScheduleItem) {
       currentCycle = currentScheduleItem.cycleNumber;
-      currentReceiver = currentScheduleItem.receiverId;
+      
+      // Populate ONLY the current period's receiver
+      currentReceiver = await User.findById(currentScheduleItem.receiverId).select('fullName email image');
       
       const receiverIdStr = String(currentScheduleItem.receiverId?._id || currentScheduleItem.receiverId);
       isCurrentReceiver = receiverIdStr === userId;
@@ -705,6 +705,76 @@ const updateGroup = async (userId: string, role: string, groupId: string, update
   return updatedGroup;
 };
 
+// Get member status list and payment history for a specific period/cycle
+const getGroupPeriodHistory = async (groupId: string, periodNumberQuery?: number) => {
+  const group = await Group.findById(groupId).populate('members', 'fullName email image');
+  if (!group) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Group not found');
+  }
+
+  // Resolve period number (default to current active period, or 1 if pending)
+  let periodNumber = periodNumberQuery;
+  if (!periodNumber) {
+    periodNumber = group.status === 'active' ? getCurrentPeriodNumber(group) : 1;
+  }
+
+  // Find target schedule item to get cycle number and receiver
+  const scheduleItem = group.rotationSchedule.find(
+    (p) => p.periodNumber === periodNumber
+  );
+
+  if (!scheduleItem) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Period schedule not found');
+  }
+
+  const receiverId = scheduleItem.receiverId;
+  const cycleNumber = scheduleItem.cycleNumber;
+
+  // Retrieve all paid/unpaid contribution records for this period
+  const contributions = await Contribution.find({
+    groupId,
+    periodNumber,
+  });
+
+  const memberStatuses = group.members.map((member: any) => {
+    const isReceiver = String(member._id) === String(receiverId);
+    
+    // Find contribution record for this member
+    const contribution = contributions.find(
+      (c) => String(c.senderId) === String(member._id)
+    );
+
+    let status: 'paid' | 'pending' | 'receiver' = 'pending';
+    if (isReceiver) {
+      status = 'receiver';
+    } else if (contribution && contribution.status === 'paid') {
+      status = 'paid';
+    }
+
+    return {
+      member: {
+        _id: member._id,
+        fullName: member.fullName,
+        email: member.email,
+        image: member.image,
+      },
+      status,
+      amount: group.contributionAmount,
+      paymentDate: contribution?.paymentDate || null,
+      transactionId: contribution?.transactionId || null,
+    };
+  });
+
+  return {
+    groupId,
+    periodNumber,
+    cycleNumber,
+    payoutDate: scheduleItem.payoutDate,
+    payoutStatus: scheduleItem.status,
+    members: memberStatuses,
+  };
+};
+
 export const GroupService = {
   createGroup,
   joinGroup,
@@ -719,4 +789,5 @@ export const GroupService = {
   pauseGroup,
   leaveGroup,
   updateGroup,
+  getGroupPeriodHistory,
 };

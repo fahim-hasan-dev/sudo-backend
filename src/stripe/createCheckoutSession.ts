@@ -7,7 +7,7 @@ import { JwtPayload } from "jsonwebtoken";
 import ApiError from "../errors/ApiError";
 
 export const createCheckoutSession = async (userdata: JwtPayload, planId: string) => {
-    const { id: userId } = userdata; // Note: original used authId, but our JwtPayload seems to have id
+    const userId = userdata.authId;
 
     const user = await User.findById(userId);
     if (!user) throw new ApiError(StatusCodes.NOT_FOUND, "User not found");
