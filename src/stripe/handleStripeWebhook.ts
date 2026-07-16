@@ -9,6 +9,7 @@ import { logger } from '../shared/logger'
 import { User } from '../app/modules/user/user.model'
 import { Subscription } from '../app/modules/subscription/subscription.model'
 import { Payment } from '../app/modules/payment/payment.model'
+import { GroupService } from '../app/modules/group/group.service'
 
 const handleStripeWebhook = async (req: Request, res: Response) => {
     console.log('hit stripe webhook')
@@ -36,15 +37,20 @@ const handleStripeWebhook = async (req: Request, res: Response) => {
 
                 const mode = session.mode;
                 if (mode === 'payment') {
-                    // Handle one-time payment
-                    await Payment.create({
-                        email: session.customer_details?.email,
-                        amount: (session.amount_total || 0) / 100,
-                        transactionId: session.payment_intent as string || session.id,
-                        dateTime: new Date(),
-                        customerName: session.customer_details?.name,
-                        referenceId: session.metadata?.referenceId,
-                    });
+                    if (session.metadata?.groupId) {
+                        // Confirm group savings contribution
+                        await GroupService.confirmContributionPayment(session.id);
+                    } else {
+                        // Handle standard one-time payment
+                        await Payment.create({
+                            email: session.customer_details?.email,
+                            amount: (session.amount_total || 0) / 100,
+                            transactionId: session.payment_intent as string || session.id,
+                            dateTime: new Date(),
+                            customerName: session.customer_details?.name,
+                            referenceId: session.metadata?.referenceId,
+                        });
+                    }
                 }
 
                 // ✅ AUTO-RENEW OFF for subscriptions

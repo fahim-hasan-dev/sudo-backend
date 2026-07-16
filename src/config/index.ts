@@ -52,5 +52,6 @@ export default {
         baseUrl: process.env.DIDIT_BASE_URL || 'https://verification.didit.me/v3',
         webhookSecret: process.env.DIDIT_WEBHOOK_SECRET,
         workflowId: process.env.DIDIT_WORKFLOW_ID,
-    }
+    },
+    redis_url: process.env.REDIS_URL || 'redis://127.0.0.1:6379'
 }
