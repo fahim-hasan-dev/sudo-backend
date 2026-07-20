@@ -1,6 +1,7 @@
 import { Group } from './group.model';
 import { Contribution } from '../contribution/contribution.model';
 import { User } from '../user/user.model';
+import { SettingsService } from '../settings/settings.service';
 import QueryBuilder from '../../builder/QueryBuilder';
 import stripe from '../../../config/stripe';
 import config from '../../../config';
@@ -49,12 +50,27 @@ const createGroup = async (userId: string, groupData: Partial<IGroup>) => {
   if (!user.stripeConnected || !user.stripeAccountId) {
     throw new ApiError(
       StatusCodes.BAD_REQUEST,
-      'Please complete your Stripe Connect setup before creating a group'
+      'Please set up your Stripe Connect account first.'
     );
   }
 
+  if (!groupData.targetPoolAmount || !groupData.contributionAmount) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Pool amount and contribution are required.');
+  }
+
+  // Floating point check: check if targetPoolAmount is divisible by contributionAmount
+  if (groupData.targetPoolAmount % groupData.contributionAmount !== 0) {
+    throw new ApiError(
+      StatusCodes.BAD_REQUEST,
+      'Pool amount must be divisible by contribution.'
+    );
+  }
+
+  const targetedMembers = groupData.targetPoolAmount / groupData.contributionAmount;
+
   const newGroup = await Group.create({
     ...groupData,
+    targetedMembers,
     admin: userId,
     members: [userId],
     status: 'pending',
@@ -74,7 +90,7 @@ const joinGroup = async (userId: string, groupId: string) => {
   if (!user.stripeConnected || !user.stripeAccountId) {
     throw new ApiError(
       StatusCodes.BAD_REQUEST,
-      'Please complete your Stripe Connect setup before joining any group'
+      'Please set up your Stripe Connect account first.'
     );
   }
 
@@ -85,23 +101,23 @@ const joinGroup = async (userId: string, groupId: string) => {
 
   // Enforce visibility restriction
   if (group.visibility === 'private') {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'This group is private. You can only join via invitation.');
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'This group is private. Invitation required.');
   }
 
   if (group.status !== 'pending') {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'Cannot join an active or completed group');
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'You cannot join once the rotation starts.');
   }
 
   // Verify member uniqueness
   const isMemberAlready = group.members.some((memberId) => String(memberId) === userId);
   if (isMemberAlready) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'You are already a member of this group');
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'You are already in this group.');
   }
 
   // Verify if group is already full
-  const expectedMembers = Math.round(group.targetPoolAmount / group.contributionAmount);
+  const expectedMembers = group.targetedMembers;
   if (group.members.length >= expectedMembers) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'Group is already full');
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'This group is already full.');
   }
 
   const updatedGroup = await Group.findByIdAndUpdate(
@@ -124,7 +140,7 @@ const startGroupRotation = async (userId: string, role: string, groupId: string)
 
   // Only Group Admin or system Admin can perform this action
   if (String(group.admin) !== userId && role !== 'admin') {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Only group admin or system admin can start or resume group activities');
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Only the group creator or admin can do this.');
   }
 
   // Handle Resuming from Paused state
@@ -170,21 +186,21 @@ const startGroupRotation = async (userId: string, role: string, groupId: string)
   }
 
   if (group.status !== 'pending') {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'Group rotation is already started or completed');
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Rotation has already started.');
   }
 
   // Enforce that group must be full before rotation starts
-  const expectedMembers = Math.round(group.targetPoolAmount / group.contributionAmount);
+  const expectedMembers = group.targetedMembers;
   if (group.members.length < expectedMembers) {
     throw new ApiError(
       StatusCodes.BAD_REQUEST,
-      `Cannot start rotation. Group is not full yet. Expected ${expectedMembers} members, but has ${group.members.length}.`
+      'Cannot start rotation. Group is not full yet.'
     );
   }
 
   const totalMembers = group.members.length;
   if (totalMembers < 2) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'At least 2 members are required to start rotation');
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'At least 2 members are required to start.');
   }
 
   const schedule = [];
@@ -240,11 +256,11 @@ const pauseGroup = async (userId: string, role: string, groupId: string) => {
 
   // Only Group Admin or system Admin can perform this action
   if (String(group.admin) !== userId && role !== 'admin') {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Only group admin or system admin can pause group activities');
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Only the group creator or admin can do this.');
   }
 
   if (group.status !== 'active') {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'Only active groups can be paused');
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Only active groups can be paused.');
   }
 
   // Find the currently active period index
@@ -257,7 +273,7 @@ const pauseGroup = async (userId: string, role: string, groupId: string) => {
   if (!currentPeriodItem || currentPeriodItem.status !== 'completed') {
     throw new ApiError(
       StatusCodes.BAD_REQUEST,
-      'Cannot pause group during a running period. All members must complete their payments for the current period first.'
+      'Cannot pause mid-cycle. All payments must be completed first.'
     );
   }
 
@@ -325,7 +341,11 @@ const payContribution = async (userId: string, groupId: string) => {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'You already paid for this period');
   }
 
-  const commissionAmount = Math.round(group.contributionAmount * 0.05); // 5% fee
+  // Fetch platform commission settings
+  const settings = await SettingsService.getSettings();
+  const commissionPercentage = settings.platformCommission / 100;
+
+  const commissionAmount = Math.round(group.contributionAmount * commissionPercentage);
   const transferAmount = group.contributionAmount - commissionAmount;
 
   // Stripe checkout session with destination connect transfer
@@ -616,12 +636,12 @@ const leaveGroup = async (userId: string, groupId: string) => {
 
   // Only allowed to leave if the group status is pending
   if (group.status !== 'pending') {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'Cannot leave an active, paused, or completed group');
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'You cannot leave once the rotation starts.');
   }
 
   const isMember = group.members.some((memberId) => String(memberId) === userId);
   if (!isMember) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'You are not a member of this group');
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'You are not in this group.');
   }
 
   // If the user is the admin/creator
@@ -667,14 +687,14 @@ const updateGroup = async (userId: string, role: string, groupId: string, update
 
   // Only Group Admin or system Admin can perform this action
   if (String(group.admin) !== userId && role !== 'admin') {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Only group admin or system admin can edit group configurations');
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Only the group creator or admin can do this.');
   }
 
   // Strictly restrict editing if group has started, paused, or completed
   if (group.status !== 'pending') {
     throw new ApiError(
       StatusCodes.BAD_REQUEST,
-      `Cannot edit group configurations once activities have started (Current status: ${group.status})`
+      'Cannot edit details after the rotation has started.'
     );
   }
 
@@ -694,6 +714,19 @@ const updateGroup = async (userId: string, role: string, groupId: string, update
     if (updateData[key as keyof IGroup] !== undefined) {
       filteredUpdates[key] = updateData[key as keyof IGroup];
     }
+  }
+
+  const contributionAmount = updateData.contributionAmount !== undefined ? updateData.contributionAmount : group.contributionAmount;
+  const targetPoolAmount = updateData.targetPoolAmount !== undefined ? updateData.targetPoolAmount : group.targetPoolAmount;
+
+  if (updateData.contributionAmount !== undefined || updateData.targetPoolAmount !== undefined) {
+    if (targetPoolAmount % contributionAmount !== 0) {
+      throw new ApiError(
+        StatusCodes.BAD_REQUEST,
+        'Pool amount must be divisible by contribution.'
+      );
+    }
+    filteredUpdates.targetedMembers = targetPoolAmount / contributionAmount;
   }
 
   const updatedGroup = await Group.findByIdAndUpdate(

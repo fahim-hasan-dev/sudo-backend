@@ -26,4 +26,10 @@ router.post(
   StripeController.createExpressDashboardLink
 );
 
+// Onboarding success/refresh callback redirect (Public URL)
+router.get(
+  '/connect-callback',
+  StripeController.connectCallback
+);
+
 export const StripeRoutes = router;

@@ -14,6 +14,7 @@ export type IGroup = {
   admin: Types.ObjectId;
   contributionAmount: number;
   targetPoolAmount: number;
+  targetedMembers: number;
   paymentFrequency: 'weekly' | 'monthly' | 'quarterly';
   quarterlyIntervalMonths?: number;
   totalCycles: number;

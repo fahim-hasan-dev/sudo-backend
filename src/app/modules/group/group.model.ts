@@ -15,6 +15,7 @@ const GroupSchema = new Schema<IGroup>(
     admin: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     contributionAmount: { type: Number, required: true },
     targetPoolAmount: { type: Number, required: true },
+    targetedMembers: { type: Number, required: true },
     paymentFrequency: { type: String, enum: ['weekly', 'monthly', 'quarterly'], required: true },
     quarterlyIntervalMonths: { type: Number, enum: [2, 3, 4, 5], default: 3 },
     totalCycles: { type: Number, required: true },

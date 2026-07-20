@@ -8,7 +8,7 @@ import { Types } from 'mongoose';
 // Send a new group invitation to a user
 const sendInvitation = async (senderId: string, groupId: string, receiverId: string) => {
   if (senderId === receiverId) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'You cannot invite yourself');
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'You cannot invite yourself.');
   }
 
   // 1. Verify group exists and sender is a member
@@ -19,24 +19,24 @@ const sendInvitation = async (senderId: string, groupId: string, receiverId: str
 
   const isSenderMember = group.members.some((memberId) => String(memberId) === senderId);
   if (!isSenderMember) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, 'You are not a member of this group');
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'You are not in this group.');
   }
 
   // 2. Group must be pending to invite members
   if (group.status !== 'pending') {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'Group is already active or completed');
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Group rotation has already started.');
   }
 
   // 3. Verify receiver exists
   const receiver = await User.findById(receiverId);
   if (!receiver) {
-    throw new ApiError(StatusCodes.NOT_FOUND, 'Invited user not found');
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Invited user not found.');
   }
 
   // 4. Verify receiver is not already in the group
   const isReceiverMember = group.members.some((memberId) => String(memberId) === receiverId);
   if (isReceiverMember) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'User is already a member of this group');
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'User is already in this group.');
   }
 
   // 5. Verify no active pending invitation exists
@@ -46,13 +46,13 @@ const sendInvitation = async (senderId: string, groupId: string, receiverId: str
     status: 'pending',
   });
   if (existingInvitation) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'An active invitation is already pending for this user');
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Invitation already sent to this user.');
   }
 
   // 6. Verify if group slots are available
-  const expectedMembersCount = Math.round(group.targetPoolAmount / group.contributionAmount);
+  const expectedMembersCount = group.targetedMembers;
   if (group.members.length >= expectedMembersCount) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'Group is already full');
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'This group is already full.');
   }
 
   const invitation = await GroupInvitation.create({
@@ -85,11 +85,11 @@ const respondToInvitation = async (invitationId: string, userId: string, action:
   }
 
   if (String(invitation.receiverId) !== userId) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, 'This invitation is not addressed to you');
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'This invitation is not for you.');
   }
 
   if (invitation.status !== 'pending') {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'This invitation has already been processed');
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Invitation already processed.');
   }
 
   const group = await Group.findById(invitation.groupId);
@@ -103,19 +103,19 @@ const respondToInvitation = async (invitationId: string, userId: string, action:
     if (!user || !user.stripeConnected || !user.stripeAccountId) {
       throw new ApiError(
         StatusCodes.BAD_REQUEST,
-        'Please complete your Stripe Connect setup before accepting the invitation'
+        'Please set up your Stripe Connect account first.'
       );
     }
 
     // 2. Verify group status
     if (group.status !== 'pending') {
-      throw new ApiError(StatusCodes.BAD_REQUEST, 'Group is no longer accepting members');
+      throw new ApiError(StatusCodes.BAD_REQUEST, 'Group is no longer accepting members.');
     }
 
     // 3. Verify if slots are full
-    const expectedMembersCount = Math.round(group.targetPoolAmount / group.contributionAmount);
+    const expectedMembersCount = group.targetedMembers;
     if (group.members.length >= expectedMembersCount) {
-      throw new ApiError(StatusCodes.BAD_REQUEST, 'Group is already full');
+      throw new ApiError(StatusCodes.BAD_REQUEST, 'This group is already full.');
     }
 
     // 4. Join user to the group

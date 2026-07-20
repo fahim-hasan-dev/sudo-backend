@@ -2,6 +2,8 @@ import express from 'express';
 import auth from '../../middleware/auth';
 import { USER_ROLES } from '../../../enum/user';
 import { GroupController } from './group.controller';
+import validateRequest from '../../middleware/validateRequest';
+import { createGroupZodSchema, updateGroupZodSchema } from './group.validation';
 
 const router = express.Router();
 
@@ -16,6 +18,7 @@ router.get(
 router.post(
   '/create',
   auth(USER_ROLES.USER, USER_ROLES.ADMIN),
+  validateRequest(createGroupZodSchema),
   GroupController.createGroup
 );
 
@@ -79,6 +82,7 @@ router.get(
 router.patch(
   '/:id',
   auth(USER_ROLES.USER, USER_ROLES.ADMIN),
+  validateRequest(updateGroupZodSchema),
   GroupController.updateGroup
 );
 

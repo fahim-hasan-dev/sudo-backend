@@ -14,6 +14,7 @@ import { TokenRoutes } from '../modules/token/token.route';
 import { PlanRoutes } from '../modules/plan/plan.route';
 import { SubscriptionRoutes } from '../modules/subscription/subscription.route';
 import { NotificationRoutes } from '../modules/notification/notification.routes';
+import { SettingsRoutes } from '../modules/settings/settings.route';
 
 
 const router = express.Router();
@@ -33,6 +34,7 @@ const apiRoutes = [
     { path: "/plan", route: PlanRoutes },
     { path: "/subscription", route: SubscriptionRoutes },
     { path: "/notification", route: NotificationRoutes },
+    { path: "/settings", route: SettingsRoutes },
 ]
 
 router.post('/webhook', handleStripeWebhook);

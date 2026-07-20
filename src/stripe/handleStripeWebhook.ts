@@ -104,7 +104,20 @@ const handleStripeWebhook = async (req: Request, res: Response) => {
                     { user: deletedSub.metadata.userId },
                     { status: 'expired' },
                 )
-                break
+                break;
+            }
+
+            case 'account.updated': {
+                const account = data as Stripe.Account;
+                const isSetupComplete = account.details_submitted && account.charges_enabled;
+                if (isSetupComplete) {
+                    await User.findOneAndUpdate(
+                        { stripeAccountId: account.id },
+                        { stripeConnected: true }
+                    );
+                    logger.info(`👥 Connect account ${account.id} marked as fully connected.`);
+                }
+                break;
             }
 
             default:

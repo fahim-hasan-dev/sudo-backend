@@ -31,8 +31,8 @@ const createExpressConnectedAccount = async (userId: string) => {
   }
 
   // Generate the onboarding link
-  const returnUrl = `${config.stripe.frontendUrl || 'http://localhost:3000'}/stripe/return`;
-  const refreshUrl = `${config.stripe.frontendUrl || 'http://localhost:3000'}/stripe/refresh`;
+  const returnUrl = `${config.backend_url || 'http://localhost:5002'}/api/v1/stripe/connect-callback?status=success`;
+  const refreshUrl = `${config.backend_url || 'http://localhost:5002'}/api/v1/stripe/connect-callback?status=refresh`;
 
   const accountLink = await stripe.accountLinks.create({
     account: stripeAccountId,
@@ -52,7 +52,13 @@ const checkConnectedAccountStatus = async (userId: string) => {
   }
 
   if (!user.stripeAccountId) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'No Stripe account registered for this user');
+    return {
+      stripeAccountId: '',
+      detailsSubmitted: false,
+      chargesEnabled: false,
+      payoutsEnabled: false,
+      stripeConnected: false,
+    };
   }
 
   const account = await stripe.accounts.retrieve(user.stripeAccountId);
