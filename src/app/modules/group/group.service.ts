@@ -2,6 +2,7 @@ import { Group } from './group.model';
 import { Contribution } from '../contribution/contribution.model';
 import { User } from '../user/user.model';
 import { SettingsService } from '../settings/settings.service';
+import { NotificationService } from '../notification/notification.service';
 import QueryBuilder from '../../builder/QueryBuilder';
 import stripe from '../../../config/stripe';
 import config from '../../../config';
@@ -10,7 +11,7 @@ import { StatusCodes } from 'http-status-codes';
 import { Types } from 'mongoose';
 import { IGroup } from './group.interface';
 
-// Calculate the current period index based on dates and frequency
+// Get current active period number
 const getCurrentPeriodNumber = (group: IGroup): number => {
   const now = new Date();
   const start = new Date(group.startDate);
@@ -39,26 +40,18 @@ const getCurrentPeriodNumber = (group: IGroup): number => {
   return period > maxPeriod ? maxPeriod : period;
 };
 
-// Create a new savings group
+// Create new savings group
 const createGroup = async (userId: string, groupData: Partial<IGroup>) => {
   const user = await User.findById(userId);
   if (!user) {
     throw new ApiError(StatusCodes.NOT_FOUND, 'User not found');
   }
 
-  // Restrict group creation if Stripe Connect setup is incomplete
-  if (!user.stripeConnected || !user.stripeAccountId) {
-    throw new ApiError(
-      StatusCodes.BAD_REQUEST,
-      'Please set up your Stripe Connect account first.'
-    );
-  }
-
   if (!groupData.targetPoolAmount || !groupData.contributionAmount) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Pool amount and contribution are required.');
   }
 
-  // Floating point check: check if targetPoolAmount is divisible by contributionAmount
+  // Check division remainder
   if (groupData.targetPoolAmount % groupData.contributionAmount !== 0) {
     throw new ApiError(
       StatusCodes.BAD_REQUEST,
@@ -67,6 +60,13 @@ const createGroup = async (userId: string, groupData: Partial<IGroup>) => {
   }
 
   const targetedMembers = groupData.targetPoolAmount / groupData.contributionAmount;
+
+  if (targetedMembers < 2) {
+    throw new ApiError(
+      StatusCodes.BAD_REQUEST,
+      'At least 2 members are required to form a group.'
+    );
+  }
 
   const newGroup = await Group.create({
     ...groupData,
@@ -79,19 +79,11 @@ const createGroup = async (userId: string, groupData: Partial<IGroup>) => {
   return newGroup;
 };
 
-// Join a savings group (restricted to public groups)
+// Join a public group
 const joinGroup = async (userId: string, groupId: string) => {
   const user = await User.findById(userId);
   if (!user) {
     throw new ApiError(StatusCodes.NOT_FOUND, 'User not found');
-  }
-
-  // Restrict entry if Stripe Connect setup is incomplete
-  if (!user.stripeConnected || !user.stripeAccountId) {
-    throw new ApiError(
-      StatusCodes.BAD_REQUEST,
-      'Please set up your Stripe Connect account first.'
-    );
   }
 
   const group = await Group.findById(groupId);
@@ -99,7 +91,7 @@ const joinGroup = async (userId: string, groupId: string) => {
     throw new ApiError(StatusCodes.NOT_FOUND, 'Group not found');
   }
 
-  // Enforce visibility restriction
+  // Private groups are invitation-only
   if (group.visibility === 'private') {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'This group is private. Invitation required.');
   }
@@ -108,13 +100,13 @@ const joinGroup = async (userId: string, groupId: string) => {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'You cannot join once the rotation starts.');
   }
 
-  // Verify member uniqueness
+  // Avoid duplicate membership
   const isMemberAlready = group.members.some((memberId) => String(memberId) === userId);
   if (isMemberAlready) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'You are already in this group.');
   }
 
-  // Verify if group is already full
+  // Check slots availability
   const expectedMembers = group.targetedMembers;
   if (group.members.length >= expectedMembers) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'This group is already full.');
@@ -131,24 +123,24 @@ const joinGroup = async (userId: string, groupId: string) => {
   return updatedGroup;
 };
 
-// Generate schedule and activate rotation (or resume from paused status)
+// Start or resume rotation
 const startGroupRotation = async (userId: string, role: string, groupId: string) => {
   const group = await Group.findById(groupId);
   if (!group) {
     throw new ApiError(StatusCodes.NOT_FOUND, 'Group not found');
   }
 
-  // Only Group Admin or system Admin can perform this action
+  // Check permissions
   if (String(group.admin) !== userId && role !== 'admin') {
     throw new ApiError(StatusCodes.UNAUTHORIZED, 'Only the group creator or admin can do this.');
   }
 
-  // Handle Resuming from Paused state
+  // Resume paused group
   if (group.status === 'paused') {
     const now = new Date();
     let shiftCount = 0;
     
-    // Shift all remaining pending periods to start from today
+    // Shift future payout dates from today
     const updatedSchedule = group.rotationSchedule.map((period) => {
       if (period.status === 'pending') {
         const newPayoutDate = new Date(now);
@@ -189,7 +181,7 @@ const startGroupRotation = async (userId: string, role: string, groupId: string)
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Rotation has already started.');
   }
 
-  // Enforce that group must be full before rotation starts
+  // Check group is full
   const expectedMembers = group.targetedMembers;
   if (group.members.length < expectedMembers) {
     throw new ApiError(
@@ -207,7 +199,7 @@ const startGroupRotation = async (userId: string, role: string, groupId: string)
   const totalPeriods = group.totalCycles * totalMembers;
   const actualStartTime = new Date();
 
-  // Build rotation schedule starting from the actual activation date
+  // Create schedule items
   for (let period = 1; period <= totalPeriods; period++) {
     const cycle = Math.ceil(period / totalMembers);
     const receiverIndex = (period - 1) % totalMembers;
@@ -237,7 +229,7 @@ const startGroupRotation = async (userId: string, role: string, groupId: string)
     {
       $set: {
         status: 'active',
-        startDate: actualStartTime, // Reset expected start date to actual start date
+        startDate: actualStartTime,
         rotationSchedule: schedule,
       },
     },
@@ -247,14 +239,14 @@ const startGroupRotation = async (userId: string, role: string, groupId: string)
   return activatedGroup;
 };
 
-// Pause group activities (only allowed if current period/cycle is fully paid/completed)
+// Pause group
 const pauseGroup = async (userId: string, role: string, groupId: string) => {
   const group = await Group.findById(groupId);
   if (!group) {
     throw new ApiError(StatusCodes.NOT_FOUND, 'Group not found');
   }
 
-  // Only Group Admin or system Admin can perform this action
+  // Check permissions
   if (String(group.admin) !== userId && role !== 'admin') {
     throw new ApiError(StatusCodes.UNAUTHORIZED, 'Only the group creator or admin can do this.');
   }
@@ -263,13 +255,13 @@ const pauseGroup = async (userId: string, role: string, groupId: string) => {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Only active groups can be paused.');
   }
 
-  // Find the currently active period index
+  // Find current active period
   const currentPeriodNum = getCurrentPeriodNumber(group);
   const currentPeriodItem = group.rotationSchedule.find(
     (p) => p.periodNumber === currentPeriodNum
   );
 
-  // Can only pause if the running cycle/period has been fully completed (paid)
+  // Payments must be completed first
   if (!currentPeriodItem || currentPeriodItem.status !== 'completed') {
     throw new ApiError(
       StatusCodes.BAD_REQUEST,
@@ -288,8 +280,8 @@ const pauseGroup = async (userId: string, role: string, groupId: string) => {
   return pausedGroup;
 };
 
-// Initialize contribution payment with direct transfer to the scheduled receiver
-const payContribution = async (userId: string, groupId: string) => {
+// Initialize contribution checkout
+const payContribution = async (userId: string, groupId: string, periodNumberQuery?: number) => {
   const group = await Group.findById(groupId);
   if (!group) {
     throw new ApiError(StatusCodes.NOT_FOUND, 'Group not found');
@@ -299,40 +291,60 @@ const payContribution = async (userId: string, groupId: string) => {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Group is not active');
   }
 
-  // Ensure payer is in group
+  // Check membership
   const isMember = group.members.some((memberId) => String(memberId) === userId);
   if (!isMember) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'You are not a member of this group');
   }
 
   const currentPeriod = getCurrentPeriodNumber(group);
-  const currentScheduleItem = group.rotationSchedule.find(
-    (item) => item.periodNumber === currentPeriod
-  );
+  const targetPeriod = periodNumberQuery || currentPeriod;
 
-  if (!currentScheduleItem) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'Active period schedule not found');
+  const totalPeriods = group.totalCycles * group.members.length;
+  if (targetPeriod < 1 || targetPeriod > totalPeriods) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid period number.');
   }
 
-  const receiverId = currentScheduleItem.receiverId;
+  if (targetPeriod > currentPeriod) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'You cannot pay for future periods in advance.');
+  }
 
-  // Receivers do not contribute during their payout slot
+  const targetScheduleItem = group.rotationSchedule.find(
+    (item) => item.periodNumber === targetPeriod
+  );
+
+  if (!targetScheduleItem) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Period schedule not found');
+  }
+
+  const receiverId = targetScheduleItem.receiverId;
+
+  // Receiver doesn't pay in their slot
   if (String(receiverId) === userId) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'You are the receiver for this period. No payment needed.');
   }
 
   const receiverUser = await User.findById(receiverId);
   if (!receiverUser || !receiverUser.stripeAccountId || !receiverUser.stripeConnected) {
+    if (receiverUser) {
+      await NotificationService.insertNotification({
+        title: 'Action Required: Set Up Stripe Connect',
+        message: `Members are trying to pay contributions for group "${group.name}". Please complete your Stripe Connect setup to receive payouts.`,
+        receiver: receiverUser._id,
+        type: 'USER',
+        screen: 'STRIPE_SETUP',
+      });
+    }
     throw new ApiError(
       StatusCodes.BAD_REQUEST,
-      'The scheduled receiver has not completed Stripe onboarding. Cannot process payment.'
+      'Receiver has not set up their payment account yet.'
     );
   }
 
-  // Prevent duplicate payments
+  // Check duplicate contributions
   const existingContribution = await Contribution.findOne({
     groupId,
-    periodNumber: currentPeriod,
+    periodNumber: targetPeriod,
     senderId: userId,
     status: 'paid',
   });
@@ -341,14 +353,14 @@ const payContribution = async (userId: string, groupId: string) => {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'You already paid for this period');
   }
 
-  // Fetch platform commission settings
+  // Fetch platform settings
   const settings = await SettingsService.getSettings();
   const commissionPercentage = settings.platformCommission / 100;
 
   const commissionAmount = Math.round(group.contributionAmount * commissionPercentage);
   const transferAmount = group.contributionAmount - commissionAmount;
 
-  // Stripe checkout session with destination connect transfer
+  // Create stripe checkout session
   const session = await stripe.checkout.sessions.create({
     payment_method_types: ['card'],
     line_items: [
@@ -356,7 +368,7 @@ const payContribution = async (userId: string, groupId: string) => {
         price_data: {
           currency: 'usd',
           product_data: {
-            name: `${group.name} - Period ${currentPeriod} Contribution`,
+            name: `${group.name} - Period ${targetPeriod} Contribution`,
           },
           unit_amount: group.contributionAmount * 100,
         },
@@ -374,7 +386,7 @@ const payContribution = async (userId: string, groupId: string) => {
     cancel_url: `${config.stripe.frontendUrl || 'http://localhost:3000'}/group/${groupId}/cancel`,
     metadata: {
       groupId,
-      periodNumber: String(currentPeriod),
+      periodNumber: String(targetPeriod),
       senderId: userId,
       receiverId: String(receiverId),
       commissionAmount: String(commissionAmount),
@@ -382,10 +394,10 @@ const payContribution = async (userId: string, groupId: string) => {
     },
   });
 
-  // Track initial unpaid contribution
+  // Log initial unpaid record
   await Contribution.create({
     groupId,
-    periodNumber: currentPeriod,
+    periodNumber: targetPeriod,
     senderId: userId,
     receiverId,
     amount: group.contributionAmount,
@@ -398,7 +410,7 @@ const payContribution = async (userId: string, groupId: string) => {
   return { url: session.url };
 };
 
-// Confirm payment via Stripe webhook callback
+// Confirm webhook payment
 const confirmContributionPayment = async (stripeSessionId: string, transactionId: string) => {
   const contribution = await Contribution.findOne({ stripeSessionId });
   if (!contribution) return;
@@ -416,7 +428,7 @@ const confirmContributionPayment = async (stripeSessionId: string, transactionId
   const group = await Group.findById(contribution.groupId);
   if (!group) return;
 
-  // Count total completed contributions for current period
+  // Count paid contributions
   const totalPaidPayers = await Contribution.countDocuments({
     groupId: group._id,
     periodNumber: contribution.periodNumber,
@@ -425,7 +437,7 @@ const confirmContributionPayment = async (stripeSessionId: string, transactionId
 
   const expectedPayers = group.members.length - 1;
 
-  // If all members paid, mark period complete
+  // Mark period complete if everyone paid
   if (totalPaidPayers >= expectedPayers) {
     await Group.updateOne(
       { _id: group._id, 'rotationSchedule.periodNumber': contribution.periodNumber },
@@ -436,14 +448,14 @@ const confirmContributionPayment = async (stripeSessionId: string, transactionId
 
     const totalPeriods = group.totalCycles * group.members.length;
 
-    // Complete entire group cycle if this was the last period
+    // Mark group completed on last period
     if (contribution.periodNumber === totalPeriods) {
       await Group.findByIdAndUpdate(group._id, { $set: { status: 'completed' } });
     }
   }
 };
 
-// Detailed status tracking (who paid, who is unpaid, due status)
+// Track group payments
 const trackGroupPayments = async (groupId: string) => {
   const group = await Group.findById(groupId).populate('members', 'fullName email');
   if (!group) {
@@ -459,7 +471,7 @@ const trackGroupPayments = async (groupId: string) => {
     const scheduleItem = group.rotationSchedule.find((item) => item.periodNumber === period);
     const receiverId = scheduleItem?.receiverId;
 
-    // Filter members scheduled to contribute this period
+    // Filter active contributors
     const contributors = group.members.filter((member) => String(member._id) !== String(receiverId));
 
     const periodContributions = await Contribution.find({
@@ -499,7 +511,7 @@ const trackGroupPayments = async (groupId: string) => {
   };
 };
 
-// Get basic details and active rotation status for a single group
+// Get single group details
 const getGroupDetails = async (groupId: string, userId: string) => {
   const group = await Group.findById(groupId)
     .populate('admin', 'fullName email');
@@ -529,13 +541,13 @@ const getGroupDetails = async (groupId: string, userId: string) => {
     if (currentScheduleItem) {
       currentCycle = currentScheduleItem.cycleNumber;
       
-      // Populate ONLY the current period's receiver
+      // Get current receiver info
       currentReceiver = await User.findById(currentScheduleItem.receiverId).select('fullName email image');
       
       const receiverIdStr = String(currentScheduleItem.receiverId?._id || currentScheduleItem.receiverId);
       isCurrentReceiver = receiverIdStr === userId;
 
-      // Check if user has paid for the current active period
+      // Check if user paid for active period
       hasPaidCurrentPeriod = !!(await Contribution.exists({
         groupId,
         periodNumber: currentPeriod,
@@ -556,11 +568,13 @@ const getGroupDetails = async (groupId: string, userId: string) => {
   };
 };
 
-// Retrieve all groups (admin sees public/private, user sees only public)
+// Retrieve all discoverable groups
 const getAllGroups = async (userId: string, role: string, query: Record<string, unknown>) => {
   const filter: Record<string, any> = {};
   if (role !== 'admin') {
     filter.visibility = 'public';
+    filter.admin = { $ne: new Types.ObjectId(userId) };
+    filter.members = { $ne: new Types.ObjectId(userId) };
   }
 
   const groupQuery = new QueryBuilder(
@@ -577,7 +591,7 @@ const getAllGroups = async (userId: string, role: string, query: Record<string, 
   return { data, meta };
 };
 
-// Retrieve groups that the authenticated user belongs to with progress and cycle info
+// Get groups authenticated user belongs to
 const getUserGroups = async (userId: string) => {
   const groups = await Group.find({ members: new Types.ObjectId(userId) })
     .populate('admin', 'fullName email')
@@ -627,7 +641,7 @@ const getUserGroups = async (userId: string) => {
   return result;
 };
 
-// Leave/Exit a group (only allowed when group status is pending)
+// Leave/exit group
 const leaveGroup = async (userId: string, groupId: string) => {
   const group = await Group.findById(groupId);
   if (!group) {
@@ -644,14 +658,14 @@ const leaveGroup = async (userId: string, groupId: string) => {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'You are not in this group.');
   }
 
-  // If the user is the admin/creator
+  // Handle admin exit
   if (String(group.admin) === userId) {
-    // If they are the only member, delete the group entirely
+    // Delete group if only member
     if (group.members.length <= 1) {
       await Group.findByIdAndDelete(groupId);
       return { deleted: true };
     } else {
-      // If there are other members, assign a new admin (first other member)
+      // Shift admin responsibility to next member
       const remainingMembers = group.members.filter((memberId) => String(memberId) !== userId);
       const newAdmin = remainingMembers[0];
       
@@ -678,7 +692,7 @@ const leaveGroup = async (userId: string, groupId: string) => {
   return updatedGroup;
 };
 
-// Update/Edit group configuration (only allowed while group is in pending status)
+// Update group configuration
 const updateGroup = async (userId: string, role: string, groupId: string, updateData: Partial<IGroup>) => {
   const group = await Group.findById(groupId);
   if (!group) {
@@ -690,7 +704,7 @@ const updateGroup = async (userId: string, role: string, groupId: string, update
     throw new ApiError(StatusCodes.UNAUTHORIZED, 'Only the group creator or admin can do this.');
   }
 
-  // Strictly restrict editing if group has started, paused, or completed
+  // Editing locked after start
   if (group.status !== 'pending') {
     throw new ApiError(
       StatusCodes.BAD_REQUEST,
@@ -698,7 +712,7 @@ const updateGroup = async (userId: string, role: string, groupId: string, update
     );
   }
 
-  // Filter allowed fields for update
+  // Allow only configuration fields
   const allowedUpdates = [
     'name',
     'contributionAmount',
@@ -726,7 +740,14 @@ const updateGroup = async (userId: string, role: string, groupId: string, update
         'Pool amount must be divisible by contribution.'
       );
     }
-    filteredUpdates.targetedMembers = targetPoolAmount / contributionAmount;
+    const targetedMembers = targetPoolAmount / contributionAmount;
+    if (targetedMembers < 2) {
+      throw new ApiError(
+        StatusCodes.BAD_REQUEST,
+        'At least 2 members are required to form a group.'
+      );
+    }
+    filteredUpdates.targetedMembers = targetedMembers;
   }
 
   const updatedGroup = await Group.findByIdAndUpdate(
@@ -738,20 +759,20 @@ const updateGroup = async (userId: string, role: string, groupId: string, update
   return updatedGroup;
 };
 
-// Get member status list and payment history for a specific period/cycle
+// Retrieve payment history and member statuses
 const getGroupPeriodHistory = async (groupId: string, periodNumberQuery?: number) => {
   const group = await Group.findById(groupId).populate('members', 'fullName email image');
   if (!group) {
     throw new ApiError(StatusCodes.NOT_FOUND, 'Group not found');
   }
 
-  // Resolve period number (default to current active period, or 1 if pending)
+  // Resolve target period
   let periodNumber = periodNumberQuery;
   if (!periodNumber) {
     periodNumber = group.status === 'active' ? getCurrentPeriodNumber(group) : 1;
   }
 
-  // Find target schedule item to get cycle number and receiver
+  // Find schedule item
   const scheduleItem = group.rotationSchedule.find(
     (p) => p.periodNumber === periodNumber
   );
@@ -763,7 +784,7 @@ const getGroupPeriodHistory = async (groupId: string, periodNumberQuery?: number
   const receiverId = scheduleItem.receiverId;
   const cycleNumber = scheduleItem.cycleNumber;
 
-  // Retrieve all paid/unpaid contribution records for this period
+  // Find contributions in period
   const contributions = await Contribution.find({
     groupId,
     periodNumber,
@@ -772,7 +793,7 @@ const getGroupPeriodHistory = async (groupId: string, periodNumberQuery?: number
   const memberStatuses = group.members.map((member: any) => {
     const isReceiver = String(member._id) === String(receiverId);
     
-    // Find contribution record for this member
+    // Match member contribution
     const contribution = contributions.find(
       (c) => String(c.senderId) === String(member._id)
     );

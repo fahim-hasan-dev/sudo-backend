@@ -57,10 +57,10 @@ const pauseGroup = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
-// Controller to pay contribution for current period
+// Controller to pay contribution for a specific or current period
 const payContribution = catchAsync(async (req: Request, res: Response) => {
   const user = req.user as JwtPayload;
-  const result = await GroupService.payContribution(user.authId, req.params.id);
+  const result = await GroupService.payContribution(user.authId, req.params.id, req.body.periodNumber);
 
   sendResponse(res, {
     statusCode: StatusCodes.OK,

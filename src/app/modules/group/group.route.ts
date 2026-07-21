@@ -86,7 +86,7 @@ router.patch(
   GroupController.updateGroup
 );
 
-// Get all groups (admin sees public/private, user sees public only)
+// Get all groups 
 router.get(
   '/',
   auth(USER_ROLES.USER, USER_ROLES.ADMIN),

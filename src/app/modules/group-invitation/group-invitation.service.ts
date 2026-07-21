@@ -98,15 +98,6 @@ const respondToInvitation = async (invitationId: string, userId: string, action:
   }
 
   if (action === 'accept') {
-    // 1. Verify receiver has set up stripe connect
-    const user = await User.findById(userId);
-    if (!user || !user.stripeConnected || !user.stripeAccountId) {
-      throw new ApiError(
-        StatusCodes.BAD_REQUEST,
-        'Please set up your Stripe Connect account first.'
-      );
-    }
-
     // 2. Verify group status
     if (group.status !== 'pending') {
       throw new ApiError(StatusCodes.BAD_REQUEST, 'Group is no longer accepting members.');
