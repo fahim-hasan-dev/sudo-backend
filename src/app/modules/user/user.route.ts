@@ -11,6 +11,11 @@ router.get(
   auth(USER_ROLES.USER, USER_ROLES.ADMIN),
   UserController.getProfile,
 )
+router.get(
+  '/dashboard',
+  auth(USER_ROLES.USER, USER_ROLES.ADMIN),
+  UserController.getDashboardSummary,
+)
 router.get('/', auth(USER_ROLES.ADMIN), UserController.getAllUser);
 router.patch(
   '/profile',

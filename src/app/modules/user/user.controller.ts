@@ -74,7 +74,16 @@ const deleteMyAccount = catchAsync(async (req: Request, res: Response) => {
   })
 })
 
-
+// get dashboard summary
+const getDashboardSummary = catchAsync(async (req: Request, res: Response) => {
+  const result = await UserServices.getDashboardSummary(req.user! as JwtPayload)
+  sendResponse(res, {
+    statusCode: StatusCodes.OK,
+    success: true,
+    message: 'Dashboard summary retrieved successfully',
+    data: result,
+  })
+})
 
 export const UserController = {
   getAllUser,
@@ -83,4 +92,5 @@ export const UserController = {
   deleteUser,
   getProfile,
   deleteMyAccount,
+  getDashboardSummary,
 }
