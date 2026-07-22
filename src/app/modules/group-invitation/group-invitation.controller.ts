@@ -8,8 +8,8 @@ import { JwtPayload } from 'jsonwebtoken';
 // Send a group invitation to a user
 const sendInvitation = catchAsync(async (req: Request, res: Response) => {
   const user = req.user as JwtPayload;
-  const { groupId, receiverId } = req.body;
-  const result = await GroupInvitationService.sendInvitation(user.authId, groupId, receiverId);
+  const { groupId, email } = req.body;
+  const result = await GroupInvitationService.sendInvitation(user.authId, groupId, email);
 
   sendResponse(res, {
     statusCode: StatusCodes.CREATED,

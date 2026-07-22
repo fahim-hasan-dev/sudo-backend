@@ -8,6 +8,7 @@ import requestIp from 'request-ip';
 import rateLimit from 'express-rate-limit';
 import ApiError from "./errors/ApiError";
 import compression from "compression";
+import handleStripeWebhook from "./stripe/handleStripeWebhook";
 const app = express();
 
 const limiter = rateLimit({
@@ -34,7 +35,8 @@ app.use(Morgan.errorHandler);
 
 //body parser
 app.use(cors());
-app.use('/webhook', express.raw({ type: 'application/json' })); // Global webhook path
+app.use('/webhook', express.raw({ type: 'application/json' })); // Global raw body parser
+app.post('/webhook', handleStripeWebhook); // Global webhook handler
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(requestIp.mw());

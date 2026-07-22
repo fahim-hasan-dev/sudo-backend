@@ -429,6 +429,140 @@ const subscriptionActivatedEmail = (data: any) => {
   }
 }
 
+const groupInvitationEmail = (payload: {
+  receiverEmail: string;
+  receiverName: string;
+  senderName: string;
+  groupName: string;
+}) => {
+  return {
+    to: payload.receiverEmail,
+    subject: `📩 Group Invitation - "${payload.groupName}"`,
+    html: `
+<body style="margin:0; padding:0; font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0"
+         style="max-width:640px; margin:40px auto; background-color:#ffffff; border-radius:14px;
+                overflow:hidden; box-shadow:0 5px 25px rgba(0,0,0,0.08);">
+    
+    <!-- Body -->
+    <tr>
+      <td style="padding:45px;">
+        <h1 style="color:#0096FF; font-size:26px; font-weight:700; margin-bottom:15px; text-align:center;">
+          Group Invitation 👥
+        </h1>
+
+        <p style="color:#003060; font-size:16px; line-height:1.6; margin-bottom:25px;">
+          Hi <strong>${payload.receiverName}</strong>, 👋<br><br>
+          <strong>${payload.senderName}</strong> has invited you to join their private savings group <strong>"${payload.groupName}"</strong> on our application.
+        </p>
+
+        <!-- Info Box -->
+        <div style="background:linear-gradient(145deg,#EAF4FF,#D7E9FF); border:2px solid #0096FF; 
+                    border-radius:12px; padding:20px; text-align:center; margin:30px auto; max-width:400px;">
+          <p style="margin:0; color:#003060; font-size:16px; font-weight:600;">
+            Group: ${payload.groupName}
+          </p>
+          <p style="margin:8px 0 0; color:#003060; font-size:14px;">
+            Invited by: ${payload.senderName}
+          </p>
+        </div>
+
+        <p style="color:#003060; font-size:15px; line-height:1.6; text-align:center; margin-top:25px;">
+          Please log in to your account and go to your invitations to respond (Accept or Decline).
+        </p>
+
+        <!-- Button -->
+        <div style="text-align:center; margin-top:35px;">
+          <a href="${config.frontend_url || 'http://localhost:3000'}/dashboard" 
+             style="background-color:#0096FF; color:#ffffff; padding:14px 32px; font-size:16px; 
+                    font-weight:600; border-radius:10px; text-decoration:none; display:inline-block; 
+                    box-shadow:0 4px 12px rgba(0,150,255,0.3); transition:all 0.3s;">
+            View Invitation 🚀
+          </a>
+        </div>
+      </td>
+    </tr>
+
+    <!-- Footer -->
+    <tr>
+      <td align="center" style="background:linear-gradient(135deg,#F5FAFF,#E6F0FF); padding:25px 20px; border-top:1px solid #0096FF33;">
+        <p style="margin:0; color:#003060; font-size:13px;">
+          © ${new Date().getFullYear()} All rights reserved.
+        </p>
+      </td>
+    </tr>
+
+  </table>
+</body>
+    `,
+  };
+}
+
+const unregisteredGroupInvitationEmail = (payload: {
+  receiverEmail: string;
+  senderName: string;
+  groupName: string;
+}) => {
+  return {
+    to: payload.receiverEmail,
+    subject: `👋 Quick invite from ${payload.senderName} to join their savings group on Sudo`,
+    html: `
+<body style="margin:0; padding:0; font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0"
+         style="max-width:640px; margin:40px auto; background-color:#ffffff; border-radius:14px;
+                overflow:hidden; box-shadow:0 5px 25px rgba(0,0,0,0.08);">
+    
+    <!-- Body -->
+    <tr>
+      <td style="padding:45px;">
+        <h1 style="color:#0096FF; font-size:26px; font-weight:700; margin-bottom:20px; text-align:center;">
+          Hey there! 👋
+        </h1>
+
+        <p style="color:#003060; font-size:16px; line-height:1.6; margin-bottom:20px;">
+          Your friend <strong>${payload.senderName}</strong> wants to invite you to join their private savings group <strong>"${payload.groupName}"</strong> on Sudo!
+        </p>
+
+        <p style="color:#003060; font-size:16px; line-height:1.6; margin-bottom:25px;">
+          It looks like you don't have an account with us yet. No worries at all! Creating one is super fast and easy. 
+          Just sign up using your email address (<strong>${payload.receiverEmail}</strong>), and you'll be ready to join the group in no time.
+        </p>
+
+        <!-- Call to Action -->
+        <div style="text-align:center; margin:35px 0;">
+          <a href="${config.frontend_url || 'http://localhost:3000'}/register?email=${encodeURIComponent(payload.receiverEmail)}" 
+             style="background-color:#0096FF; color:#ffffff; padding:14px 32px; font-size:16px; 
+                    font-weight:600; border-radius:10px; text-decoration:none; display:inline-block; 
+                    box-shadow:0 4px 12px rgba(0,150,255,0.3); transition:all 0.3s;">
+            Create Your Account 🚀
+          </a>
+        </div>
+
+        <p style="color:#003060; font-size:15px; line-height:1.6; text-align:center;">
+          Once you sign up, let <strong>${payload.senderName}</strong> know so they can send you the official group invitation directly inside the app.
+        </p>
+
+        <p style="color:#003060; font-size:15px; line-height:1.6; text-align:center; margin-top:20px;">
+          We look forward to having you on board! ✨
+        </p>
+      </td>
+    </tr>
+
+    <!-- Footer -->
+    <tr>
+      <td align="center" style="background:linear-gradient(135deg,#F5FAFF,#E6F0FF); padding:25px 20px; border-top:1px solid #0096FF33;">
+        <p style="margin:0; color:#003060; font-size:13px;">
+          © ${new Date().getFullYear()} Sudo. All rights reserved.
+        </p>
+      </td>
+    </tr>
+
+  </table>
+</body>
+    `,
+  };
+}
+
 export const emailTemplate = {
   createAccount,
   resetPassword,
@@ -436,4 +570,6 @@ export const emailTemplate = {
   userContactConfirmationEmail,
   adminContactNotificationEmail,
   subscriptionActivatedEmail,
+  groupInvitationEmail,
+  unregisteredGroupInvitationEmail,
 }

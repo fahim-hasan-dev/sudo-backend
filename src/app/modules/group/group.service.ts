@@ -40,6 +40,46 @@ const getCurrentPeriodNumber = (group: IGroup): number => {
   return period > maxPeriod ? maxPeriod : period;
 };
 
+// Calculate group expected and completed amounts + progress percentage
+const calculateGroupStats = async (group: any) => {
+  const membersCountForCalculation = (group.status === 'pending' || !group.members) ? group.targetedMembers : group.members.length;
+  const totalPeriods = (group.rotationSchedule ? group.rotationSchedule.length : 0) || (group.totalCycles * membersCountForCalculation);
+  
+  // 1. Calculate targetedTotalPullAmount (for the whole group from start to finish)
+  const targetedTotalPullAmount = group.targetPoolAmount * totalPeriods;
+
+  // 2. Calculate totalCollectedAmount (up to current period)
+  let totalCollectedAmount = 0;
+  let currentPeriod = 0;
+
+  if (group.status === 'active' && group.rotationSchedule && group.rotationSchedule.length > 0) {
+    currentPeriod = getCurrentPeriodNumber(group);
+  } else if (group.status === 'completed') {
+    currentPeriod = totalPeriods;
+  }
+
+  if (currentPeriod > 0) {
+    // Find all paid contributions in this group up to the current period
+    const paidContributionsCount = await Contribution.countDocuments({
+      groupId: group._id,
+      periodNumber: { $lte: currentPeriod },
+      status: 'paid',
+    });
+
+    totalCollectedAmount = paidContributionsCount * group.contributionAmount;
+  }
+
+  // 3. Calculate progress percentage
+  const progress = targetedTotalPullAmount > 0 ? Math.round((totalCollectedAmount / targetedTotalPullAmount) * 100) : 0;
+
+  return {
+    targetedTotalPullAmount,
+    totalCollectedAmount,
+    progress,
+    currentPeriod,
+  };
+};
+
 // Create new savings group
 const createGroup = async (userId: string, groupData: Partial<IGroup>) => {
   const user = await User.findById(userId);
@@ -59,7 +99,7 @@ const createGroup = async (userId: string, groupData: Partial<IGroup>) => {
     );
   }
 
-  const targetedMembers = groupData.targetPoolAmount / groupData.contributionAmount;
+  const targetedMembers = (groupData.targetPoolAmount / groupData.contributionAmount) + 1;
 
   if (targetedMembers < 2) {
     throw new ApiError(
@@ -139,7 +179,7 @@ const startGroupRotation = async (userId: string, role: string, groupId: string)
   if (group.status === 'paused') {
     const now = new Date();
     let shiftCount = 0;
-    
+
     // Shift future payout dates from today
     const updatedSchedule = group.rotationSchedule.map((period) => {
       if (period.status === 'pending') {
@@ -298,7 +338,11 @@ const payContribution = async (userId: string, groupId: string, periodNumberQuer
   }
 
   const currentPeriod = getCurrentPeriodNumber(group);
-  const targetPeriod = periodNumberQuery || currentPeriod;
+  const targetPeriod = periodNumberQuery !== undefined ? Number(periodNumberQuery) : currentPeriod;
+
+  if (isNaN(targetPeriod)) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid period number.');
+  }
 
   const totalPeriods = group.totalCycles * group.members.length;
   if (targetPeriod < 1 || targetPeriod > totalPeriods) {
@@ -360,8 +404,35 @@ const payContribution = async (userId: string, groupId: string, periodNumberQuer
   const commissionAmount = Math.round(group.contributionAmount * commissionPercentage);
   const transferAmount = group.contributionAmount - commissionAmount;
 
+  // Fetch logged in user to get their email
+  const loggedInUser = await User.findById(userId);
+  if (!loggedInUser) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'User not found');
+  }
+
+  // Find or create stripe customer to lock email in checkout
+  let stripeCustomerId: string;
+  const existingCustomers = await stripe.customers.list({
+    email: loggedInUser.email,
+    limit: 1,
+  });
+
+  if (existingCustomers.data.length > 0) {
+    stripeCustomerId = existingCustomers.data[0].id;
+  } else {
+    const newCustomer = await stripe.customers.create({
+      email: loggedInUser.email,
+      name: loggedInUser.fullName,
+      metadata: {
+        userId: String(loggedInUser._id),
+      },
+    });
+    stripeCustomerId = newCustomer.id;
+  }
+
   // Create stripe checkout session
   const session = await stripe.checkout.sessions.create({
+    customer: stripeCustomerId,
     payment_method_types: ['card'],
     line_items: [
       {
@@ -512,7 +583,7 @@ const trackGroupPayments = async (groupId: string) => {
 };
 
 // Get single group details
-const getGroupDetails = async (groupId: string, userId: string) => {
+const getGroupDetails = async (groupId: string, userId: string, queryPeriod?: string) => {
   const group = await Group.findById(groupId)
     .populate('admin', 'fullName email');
 
@@ -521,11 +592,6 @@ const getGroupDetails = async (groupId: string, userId: string) => {
   }
 
   const totalPeriods = group.rotationSchedule.length;
-  const completedPeriods = group.rotationSchedule.filter(
-    (p) => p.status === 'completed'
-  ).length;
-
-  const progress = totalPeriods > 0 ? Math.round((completedPeriods / totalPeriods) * 100) : 0;
 
   let currentPeriod = 0;
   let currentCycle = 1;
@@ -533,17 +599,61 @@ const getGroupDetails = async (groupId: string, userId: string) => {
   let isCurrentReceiver = false;
   let hasPaidCurrentPeriod = false;
 
+  // 1. Calculate the active/running period of the group
+  let activePeriod = 0;
   if (group.status === 'active' && totalPeriods > 0) {
-    currentPeriod = getCurrentPeriodNumber(group);
+    activePeriod = getCurrentPeriodNumber(group);
+  } else if (group.status === 'completed') {
+    activePeriod = totalPeriods;
+  }
+
+  // 2. Validate and determine the targetPeriod to return stats for
+  let targetPeriod = activePeriod; // Default to active/current period if no query is passed
+
+  if (queryPeriod !== undefined) {
+    const periodInt = Number(queryPeriod);
+    if (!Number.isInteger(periodInt) || periodInt <= 0) {
+      throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid period number. It must be a positive integer.');
+    }
+
+    if (periodInt > totalPeriods) {
+      throw new ApiError(StatusCodes.BAD_REQUEST, `Invalid period number. Maximum allowed period is ${totalPeriods}.`);
+    }
+
+    targetPeriod = periodInt;
+  }
+
+  // Default calculations for the requested period
+  let currentPeriodExpectedAmount = group.targetPoolAmount;
+  let currentPeriodCollectedAmount = 0;
+  let progress = 0;
+
+  // Calculate stats for the requested period/rotation (targetPeriod)
+  if (targetPeriod > 0) {
+    const periodPaidCount = await Contribution.countDocuments({
+      groupId,
+      periodNumber: targetPeriod,
+      status: 'paid',
+    });
+    currentPeriodExpectedAmount = group.targetPoolAmount;
+    currentPeriodCollectedAmount = periodPaidCount * group.contributionAmount;
+    progress = currentPeriodExpectedAmount > 0 
+      ? Math.round((currentPeriodCollectedAmount / currentPeriodExpectedAmount) * 100) 
+      : 0;
+  }
+
+  // Load receiver and other info for the active/current period
+  if (group.status === 'active' && totalPeriods > 0 && activePeriod > 0) {
+    currentPeriod = activePeriod;
     const currentScheduleItem = group.rotationSchedule.find(
       (p) => p.periodNumber === currentPeriod
     );
     if (currentScheduleItem) {
       currentCycle = currentScheduleItem.cycleNumber;
-      
+
       // Get current receiver info
       currentReceiver = await User.findById(currentScheduleItem.receiverId).select('fullName email image');
-      
+
       const receiverIdStr = String(currentScheduleItem.receiverId?._id || currentScheduleItem.receiverId);
       isCurrentReceiver = receiverIdStr === userId;
 
@@ -555,16 +665,24 @@ const getGroupDetails = async (groupId: string, userId: string) => {
         status: 'paid',
       }));
     }
+  } else if (group.status === 'completed') {
+    currentPeriod = totalPeriods;
   }
 
+  // Convert to plain object and remove rotationSchedule so it's not sent to frontend
+  const { rotationSchedule, ...groupObj } = group.toObject();
+
   return {
-    group,
+    group: groupObj,
     currentPeriod,
     currentCycle,
     currentReceiver,
     progress,
+    currentPeriodExpectedAmount,
+    currentPeriodCollectedAmount,
     isCurrentReceiver,
     hasPaidCurrentPeriod,
+    totalPeriods,
   };
 };
 
@@ -578,15 +696,30 @@ const getAllGroups = async (userId: string, role: string, query: Record<string, 
   }
 
   const groupQuery = new QueryBuilder(
-    Group.find(filter).populate('admin', 'fullName email').populate('members', 'fullName email'),
+    Group.find(filter)
+      .select('-rotationSchedule -members')
+      .populate('admin', 'fullName email'),
     query
   )
     .filter()
     .sort()
     .paginate();
 
-  const data = await groupQuery.modelQuery;
+  const rawData = await groupQuery.modelQuery;
   const meta = await groupQuery.getPaginationInfo();
+
+  const data = await Promise.all(
+    rawData.map(async (group) => {
+      const stats = await calculateGroupStats(group);
+      const groupObj = group.toObject();
+      return {
+        ...groupObj,
+        targetedTotalPullAmount: stats.targetedTotalPullAmount,
+        totalCollectedAmount: stats.totalCollectedAmount,
+        progress: stats.progress,
+      };
+    })
+  );
 
   return { data, meta };
 };
@@ -597,46 +730,44 @@ const getUserGroups = async (userId: string) => {
     .populate('admin', 'fullName email')
     .populate('members', 'fullName email');
 
-  const result = groups.map((group) => {
-    const totalMembers = group.members.length;
-    const totalPeriods = group.rotationSchedule.length;
-    const completedPeriods = group.rotationSchedule.filter(
-      (p) => p.status === 'completed'
-    ).length;
+  const result = await Promise.all(
+    groups.map(async (group) => {
+      const stats = await calculateGroupStats(group);
+      const totalMembers = group.members.length;
+      const totalPeriods = group.rotationSchedule.length;
 
-    const progress = totalPeriods > 0 ? Math.round((completedPeriods / totalPeriods) * 100) : 0;
-    
-    let currentPeriod = 0;
-    let nextDueDate: Date | null = null;
-    let currentCycle = 1;
+      let nextDueDate: Date | null = null;
+      let currentCycle = 1;
 
-    if (group.status === 'active' && totalPeriods > 0) {
-      currentPeriod = getCurrentPeriodNumber(group);
-      const currentScheduleItem = group.rotationSchedule.find(
-        (p) => p.periodNumber === currentPeriod
-      );
-      if (currentScheduleItem) {
-        nextDueDate = currentScheduleItem.payoutDate;
-        currentCycle = currentScheduleItem.cycleNumber;
+      if (group.status === 'active' && totalPeriods > 0) {
+        const currentScheduleItem = group.rotationSchedule.find(
+          (p) => p.periodNumber === stats.currentPeriod
+        );
+        if (currentScheduleItem) {
+          nextDueDate = currentScheduleItem.payoutDate;
+          currentCycle = currentScheduleItem.cycleNumber;
+        }
       }
-    }
 
-    return {
-      _id: group._id,
-      name: group.name,
-      status: group.status,
-      visibility: group.visibility,
-      membersCount: totalMembers,
-      progress,
-      poolTotal: group.targetPoolAmount,
-      myShare: group.contributionAmount,
-      nextDue: nextDueDate,
-      currentCycle,
-      totalCycles: group.totalCycles,
-      paymentFrequency: group.paymentFrequency,
-      startDate: group.startDate,
-    };
-  });
+      return {
+        _id: group._id,
+        name: group.name,
+        status: group.status,
+        visibility: group.visibility,
+        membersCount: totalMembers,
+        progress: stats.progress,
+        targetedTotalPullAmount: stats.targetedTotalPullAmount,
+        totalCollectedAmount: stats.totalCollectedAmount,
+        poolTotal: group.targetPoolAmount,
+        myShare: group.contributionAmount,
+        nextDue: nextDueDate,
+        currentCycle,
+        totalCycles: group.totalCycles,
+        paymentFrequency: group.paymentFrequency,
+        startDate: group.startDate,
+      };
+    })
+  );
 
   return result;
 };
@@ -668,7 +799,7 @@ const leaveGroup = async (userId: string, groupId: string) => {
       // Shift admin responsibility to next member
       const remainingMembers = group.members.filter((memberId) => String(memberId) !== userId);
       const newAdmin = remainingMembers[0];
-      
+
       const updatedGroup = await Group.findByIdAndUpdate(
         groupId,
         {
@@ -740,7 +871,7 @@ const updateGroup = async (userId: string, role: string, groupId: string, update
         'Pool amount must be divisible by contribution.'
       );
     }
-    const targetedMembers = targetPoolAmount / contributionAmount;
+    const targetedMembers = (targetPoolAmount / contributionAmount) + 1;
     if (targetedMembers < 2) {
       throw new ApiError(
         StatusCodes.BAD_REQUEST,
@@ -767,7 +898,11 @@ const getGroupPeriodHistory = async (groupId: string, periodNumberQuery?: number
   }
 
   // Resolve target period
-  let periodNumber = periodNumberQuery;
+  let periodNumber = periodNumberQuery !== undefined ? Number(periodNumberQuery) : undefined;
+  if (periodNumber !== undefined && isNaN(periodNumber)) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid period number.');
+  }
+
   if (!periodNumber) {
     periodNumber = group.status === 'active' ? getCurrentPeriodNumber(group) : 1;
   }
@@ -784,15 +919,16 @@ const getGroupPeriodHistory = async (groupId: string, periodNumberQuery?: number
   const receiverId = scheduleItem.receiverId;
   const cycleNumber = scheduleItem.cycleNumber;
 
-  // Find contributions in period
+  // Find paid contributions in period
   const contributions = await Contribution.find({
     groupId,
     periodNumber,
+    status: 'paid',
   });
 
   const memberStatuses = group.members.map((member: any) => {
     const isReceiver = String(member._id) === String(receiverId);
-    
+
     // Match member contribution
     const contribution = contributions.find(
       (c) => String(c.senderId) === String(member._id)
@@ -801,7 +937,7 @@ const getGroupPeriodHistory = async (groupId: string, periodNumberQuery?: number
     let status: 'paid' | 'pending' | 'receiver' = 'pending';
     if (isReceiver) {
       status = 'receiver';
-    } else if (contribution && contribution.status === 'paid') {
+    } else if (contribution) {
       status = 'paid';
     }
 

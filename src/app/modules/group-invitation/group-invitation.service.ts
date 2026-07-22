@@ -4,12 +4,15 @@ import { User } from '../user/user.model';
 import ApiError from '../../../errors/ApiError';
 import { StatusCodes } from 'http-status-codes';
 import { Types } from 'mongoose';
+import { USER_STATUS } from '../../../enum/user';
+import { emailHelper } from '../../../helpers/emailHelper';
+import { emailTemplate } from '../../../shared/emailTemplate';
 
 // Send a new group invitation to a user
-const sendInvitation = async (senderId: string, groupId: string, receiverId: string) => {
-  if (senderId === receiverId) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'You cannot invite yourself.');
-  }
+const sendInvitation = async (senderId: string, groupId: string, email: string) => {
+  // Fetch sender profile to get their name
+  const sender = await User.findById(senderId);
+  const senderName = sender ? sender.fullName : 'A member';
 
   // 1. Verify group exists and sender is a member
   const group = await Group.findById(groupId);
@@ -27,10 +30,30 @@ const sendInvitation = async (senderId: string, groupId: string, receiverId: str
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Group rotation has already started.');
   }
 
-  // 3. Verify receiver exists
-  const receiver = await User.findById(receiverId);
-  if (!receiver) {
-    throw new ApiError(StatusCodes.NOT_FOUND, 'Invited user not found.');
+  // 3. Check if receiver exists
+  const receiver = await User.findOne({ email });
+  if (!receiver || receiver.status === USER_STATUS.DELETED) {
+    // If user is not registered or is deleted, send registration instructions email in human tone
+    const unregisteredEmail = emailTemplate.unregisteredGroupInvitationEmail({
+      receiverEmail: email,
+      senderName,
+      groupName: group.name,
+    });
+
+    setTimeout(() => {
+      emailHelper.sendEmail(unregisteredEmail);
+    }, 0);
+
+    return {
+      message: 'Invitation email sent successfully (User is not registered yet)',
+      unregistered: true,
+    };
+  }
+
+  const receiverId = String(receiver._id);
+
+  if (senderId === receiverId) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'You cannot invite yourself.');
   }
 
   // 4. Verify receiver is not already in the group
@@ -61,6 +84,18 @@ const sendInvitation = async (senderId: string, groupId: string, receiverId: str
     receiverId,
     status: 'pending',
   });
+
+  // Send invitation notification email asynchronously
+  const invitationEmail = emailTemplate.groupInvitationEmail({
+    receiverEmail: receiver.email,
+    receiverName: receiver.fullName,
+    senderName,
+    groupName: group.name,
+  });
+
+  setTimeout(() => {
+    emailHelper.sendEmail(invitationEmail);
+  }, 0);
 
   return invitation;
 };

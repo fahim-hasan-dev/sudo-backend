@@ -85,7 +85,12 @@ const trackGroupPayments = catchAsync(async (req: Request, res: Response) => {
 // Controller to get group details
 const getGroupDetails = catchAsync(async (req: Request, res: Response) => {
   const user = req.user as JwtPayload;
-  const result = await GroupService.getGroupDetails(req.params.id, user.authId);
+  const periodNumber = req.query.periodNumber;
+  const result = await GroupService.getGroupDetails(
+    req.params.id,
+    user.authId,
+    periodNumber ? String(periodNumber) : undefined
+  );
 
   sendResponse(res, {
     statusCode: StatusCodes.OK,
