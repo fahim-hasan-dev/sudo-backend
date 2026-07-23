@@ -57,12 +57,7 @@ router.post(
   GroupController.payContribution
 );
 
-// Get payment tracking status
-router.get(
-  '/status/:id',
-  auth(USER_ROLES.USER, USER_ROLES.ADMIN),
-  GroupController.trackGroupPayments
-);
+
 
 // Get specific period member payment status history
 router.get(

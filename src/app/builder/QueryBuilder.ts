@@ -27,26 +27,26 @@ class QueryBuilder<T> {
     return this
   }
 
-// Filtering
-filter() {
-  const queryObj = { ...this.query }
-  const excludeFields = [
-    'searchTerm',
-    'sort',
-    'page',
-    'limit',
-    'fields',
-    'withLocked',
-    'showHidden',
-    'download',
-  ]
-  excludeFields.forEach(el => delete queryObj[el])
+  // Filtering
+  filter() {
+    const queryObj = { ...this.query }
+    const excludeFields = [
+      'searchTerm',
+      'sort',
+      'page',
+      'limit',
+      'fields',
+      'withLocked',
+      'showHidden',
+      'download',
+    ]
+    excludeFields.forEach(el => delete queryObj[el])
 
-  const filters: Record<string, any> = cleanObject(queryObj)
+    const filters: Record<string, any> = cleanObject(queryObj)
 
-  this.modelQuery = this.modelQuery.find(filters as FilterQuery<T>)
-  return this
-}
+    this.modelQuery = this.modelQuery.find(filters as FilterQuery<T>)
+    return this
+  }
 
 
 

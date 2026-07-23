@@ -15,6 +15,7 @@ import { Group } from '../group/group.model'
 const getAllUser = async (query: Record<string, unknown>) => {
     const userQueryBuilder = new QueryBuilder(User.find().select('-password -authentication'), query)
         .filter()
+        .search(['fullName', 'email','phone'])
         .sort()
         .fields()
         .paginate()
@@ -34,12 +35,92 @@ const getAllUser = async (query: Record<string, unknown>) => {
 }
 
 const getSingleUser = async (id: string) => {
-    const result = await User.findById(id).select('-password -authentication')
-    return result
+    if (!Types.ObjectId.isValid(id)) {
+        throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid user ID');
+    }
+
+    const user = await User.findById(id).select('-password -authentication').lean();
+    
+    if (!user) {
+        throw new ApiError(StatusCodes.NOT_FOUND, 'User not found');
+    }
+    
+    const userId = new Types.ObjectId(id);
+    
+    // Total contribution
+    const totalContributionResult = await Contribution.aggregate([
+      {
+        $match: {
+          $or: [{ senderId: userId }, { senderId: id }],
+          status: { $regex: /^paid$/i }
+        }
+      },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+    const totalContribution = totalContributionResult[0]?.total || 0;
+
+    // Total savings (received)
+    const totalSavingsResult = await Contribution.aggregate([
+      {
+        $match: {
+          $or: [{ receiverId: userId }, { receiverId: id }],
+          status: { $regex: /^paid$/i }
+        }
+      },
+      { $group: { _id: null, total: { $sum: '$transferAmount' } } }
+    ]);
+    const totalSavings = totalSavingsResult[0]?.total || 0;
+
+    // Groups user has joined, created, or listed in rotation
+    const userGroups = await Group.find({
+      $or: [
+        { members: userId },
+        { members: id },
+        { admin: userId },
+        { admin: id },
+        { 'rotationSchedule.receiverId': userId },
+        { 'rotationSchedule.receiverId': id }
+      ]
+    })
+      .select('name status targetPoolAmount contributionAmount paymentFrequency targetedMembers totalCycles startDate visibility members admin rotationSchedule createdAt')
+      .populate('admin', 'fullName email')
+      .lean();
+    
+    // Recent Transactions
+    const recentTransactions = await Contribution.find({
+      $or: [
+        { senderId: userId },
+        { senderId: id },
+        { receiverId: userId },
+        { receiverId: id }
+      ]
+    })
+      .select('amount commissionAmount transferAmount paymentDate transactionId status stripeSessionId senderId receiverId groupId periodNumber createdAt')
+      .sort({ paymentDate: -1, createdAt: -1 })
+      .limit(100)
+      .populate('groupId', 'name targetPoolAmount paymentFrequency contributionAmount')
+      .populate('senderId', 'fullName email image photo')
+      .populate('receiverId', 'fullName email image photo')
+      .lean();
+
+    return {
+      ...user,
+      stats: {
+        totalContribution,
+        totalSavings,
+        totalGroupsJoined: userGroups.length
+      },
+      groups: userGroups,
+      transactions: recentTransactions
+    };
 }
 
 // delete User
 const deleteUser = async (id: string) => {
+    if (!Types.ObjectId.isValid(id)) {
+        throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid user ID');
+    }
+
     const user = await User.findById(id)
     if (!user) {
         throw new ApiError(StatusCodes.NOT_FOUND, 'User not found')
@@ -48,6 +129,29 @@ const deleteUser = async (id: string) => {
     const result = await User.findByIdAndDelete(id)
     return result
 }
+
+// Admin update user
+const updateUserByAdmin = async (id: string, payload: Partial<IUser>) => {
+    if (!Types.ObjectId.isValid(id)) {
+        throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid user ID');
+    }
+
+    const isExistUser = await User.findById(id);
+    if (!isExistUser) {
+        throw new ApiError(StatusCodes.NOT_FOUND, 'User not found');
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { password, authentication, ...updateData } = payload;
+
+    const updatedUser = await User.findByIdAndUpdate(
+        id,
+        { $set: updateData },
+        { new: true, runValidators: true }
+    ).select('-password -authentication');
+
+    return updatedUser;
+};
 
 const updateProfile = async (
     user: JwtPayload,
@@ -187,6 +291,7 @@ export const UserServices = {
     updateProfile,
     getAllUser,
     getSingleUser,
+    updateUserByAdmin,
     deleteUser,
     getProfile,
     deleteMyAccount,

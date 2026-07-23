@@ -59,9 +59,23 @@ const deleteGroupMessage = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+// Controller to retrieve unread messages count for a group
+const getUnreadCount = catchAsync(async (req: Request, res: Response) => {
+  const user = req.user as JwtPayload;
+  const result = await GroupMessageService.getUnreadCount(req.params.groupId, user.authId);
+
+  sendResponse(res, {
+    statusCode: StatusCodes.OK,
+    success: true,
+    message: 'Unread message count retrieved successfully',
+    data: { unreadCount: result },
+  });
+});
+
 export const GroupMessageController = {
   getGroupChatHistory,
   sendGroupMessage,
   updateGroupMessage,
   deleteGroupMessage,
+  getUnreadCount,
 };

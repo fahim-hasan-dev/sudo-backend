@@ -19,4 +19,11 @@ router.get(
   ContributionController.getUserOutstandingContributions
 );
 
+// Retrieve all contributions for admin
+router.get(
+  '/',
+  auth(USER_ROLES.ADMIN),
+  ContributionController.getAllContributions
+);
+
 export const ContributionRoutes = router;

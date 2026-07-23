@@ -36,7 +36,20 @@ const getUserOutstandingContributions = catchAsync(async (req: Request, res: Res
   });
 });
 
+// Controller to get all contributions for admin
+const getAllContributions = catchAsync(async (req: Request, res: Response) => {
+  const result = await ContributionService.getAllContributions(req.query);
+
+  sendResponse(res, {
+    statusCode: StatusCodes.OK,
+    success: true,
+    message: 'Contributions retrieved successfully',
+    data: result,
+  });
+});
+
 export const ContributionController = {
   getUserContributionHistory,
   getUserOutstandingContributions,
+  getAllContributions,
 };

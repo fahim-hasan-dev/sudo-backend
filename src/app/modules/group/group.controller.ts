@@ -70,17 +70,7 @@ const payContribution = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
-// Controller to retrieve tracking and payment logs
-const trackGroupPayments = catchAsync(async (req: Request, res: Response) => {
-  const result = await GroupService.trackGroupPayments(req.params.id);
 
-  sendResponse(res, {
-    statusCode: StatusCodes.OK,
-    success: true,
-    message: 'Group payment status tracked successfully',
-    data: result,
-  });
-});
 
 // Controller to get group details
 const getGroupDetails = catchAsync(async (req: Request, res: Response) => {
@@ -170,7 +160,6 @@ export const GroupController = {
   joinGroup,
   startGroupRotation,
   payContribution,
-  trackGroupPayments,
   getGroupDetails,
   getAllGroups,
   getUserGroups,

@@ -34,6 +34,8 @@ router.delete(
 // get single user
 router.get('/:id', UserController.getSingleUser)
 
+// update user by admin
+router.patch('/:id', auth(USER_ROLES.ADMIN), UserController.updateUserByAdmin)
 
 // delete user
 router.delete('/:id', auth(USER_ROLES.ADMIN), UserController.deleteUser)

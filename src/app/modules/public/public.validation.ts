@@ -21,14 +21,14 @@ export const PublicValidation = {
   create: z.object({
     body: z.object({
       content: z.string(),
-      type: z.enum(['refund-policy', 'terms-and-condition','contact','about']),
+      type: z.enum(['refund-policy', 'privacy-policy', 'terms-and-condition', 'contact', 'about']),
     }),
   }),
 
   update: z.object({
     body: z.object({
       content: z.string(),
-      type: z.enum(['refund policy', 'terms-and-condition','contact','about']),
+      type: z.enum(['refund policy', 'privacy-policy', 'terms-and-condition', 'contact', 'about']),
     }),
   }),
   contactZodSchema,

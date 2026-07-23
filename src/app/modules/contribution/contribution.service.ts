@@ -2,6 +2,7 @@ import { Contribution } from './contribution.model';
 import { Group } from '../group/group.model';
 import { GroupService } from '../group/group.service';
 import { Types } from 'mongoose';
+import QueryBuilder from '../../builder/QueryBuilder';
 
 // Retrieve contribution history for a specific user
 const getUserContributionHistory = async (
@@ -96,7 +97,44 @@ const getUserOutstandingContributions = async (userId: string) => {
   };
 };
 
+// Retrieve all contributions for admin
+const getAllContributions = async (query: Record<string, unknown>) => {
+  const contributionQuery = new QueryBuilder(
+    Contribution.find()
+      .populate('groupId', 'name targetPoolAmount paymentFrequency contributionAmount')
+      .populate('senderId', 'fullName email image photo')
+      .populate('receiverId', 'fullName email image photo'),
+    query
+  )
+    .filter()
+    .search(['transactionId', 'status', 'stripeSessionId'])
+    .sort()
+    .paginate();
+
+  const contributions = await contributionQuery.modelQuery.lean();
+  const meta = await contributionQuery.getPaginationInfo();
+
+  const totalVolumeResult = await Contribution.aggregate([
+    { $match: { status: 'paid' } },
+    { $group: { _id: null, total: { $sum: '$amount' } } }
+  ]);
+  const totalVolume = totalVolumeResult[0]?.total || 0;
+
+  const completedCount = await Contribution.countDocuments({ status: 'paid' });
+
+  return {
+    contributions,
+    meta,
+    stats: {
+      totalVolume,
+      completedCount,
+      totalCount: meta.total
+    }
+  };
+};
+
 export const ContributionService = {
   getUserContributionHistory,
   getUserOutstandingContributions,
+  getAllContributions,
 };

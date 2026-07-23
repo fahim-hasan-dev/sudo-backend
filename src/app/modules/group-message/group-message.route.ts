@@ -5,6 +5,13 @@ import { GroupMessageController } from './group-message.controller';
 
 const router = express.Router();
 
+// Get unread message count for a group
+router.get(
+  '/unread-count/:groupId',
+  auth(USER_ROLES.USER, USER_ROLES.ADMIN),
+  GroupMessageController.getUnreadCount
+);
+
 // Retrieve group messages logs
 router.get(
   '/:groupId',

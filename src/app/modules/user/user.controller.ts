@@ -40,7 +40,16 @@ const getSingleUser = catchAsync(async (req: Request, res: Response) => {
   })
 })
 
-
+// update user by admin
+const updateUserByAdmin = catchAsync(async (req: Request, res: Response) => {
+  const result = await UserServices.updateUserByAdmin(req.params.id, req.body)
+  sendResponse<IUser>(res, {
+    statusCode: StatusCodes.OK,
+    success: true,
+    message: 'User updated successfully',
+    data: result,
+  })
+})
 
 // delete user
 const deleteUser = catchAsync(async (req: Request, res: Response) => {
@@ -89,6 +98,7 @@ export const UserController = {
   getAllUser,
   updateProfile,
   getSingleUser,
+  updateUserByAdmin,
   deleteUser,
   getProfile,
   deleteMyAccount,

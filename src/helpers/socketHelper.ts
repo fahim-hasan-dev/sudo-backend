@@ -7,6 +7,8 @@ import config from '../config';
 import { jwtHelper } from './jwtHelper';
 import { Secret } from 'jsonwebtoken';
 import { GroupMessage } from '../app/modules/group-message/group-message.model';
+import { GroupMessageService } from '../app/modules/group-message/group-message.service';
+import { Group } from '../app/modules/group/group.model';
 
 // Secure socket connections with JWT verification middleware
 const verifySocketToken = (socket: Socket, next: (err?: Error) => void) => {
@@ -48,10 +50,29 @@ const socket = async (io: Server) => {
     const userId = socket.data.user.authId;
     logger.info(colors.blue(`💬 User ${userId} connected to /chat namespace`));
 
+    // Join user's individual room for personal/unread count alerts in chat namespace
+    socket.join(`user-${userId}`);
+
     // Join a group room
-    socket.on('join-group-chat', (groupId: string) => {
+    socket.on('join-group-chat', async (groupId: string) => {
+      console.log({groupId})
       socket.join(groupId);
       logger.info(`👥 User ${userId} joined room: ${groupId}`);
+
+      try {
+        // Mark all messages as read for this user
+        await GroupMessageService.markMessagesAsRead(groupId, userId);
+        // Instantly notify this user that their unread count is now 0
+        socket.emit('unread-count-update', { groupId, unreadCount: 0 });
+      } catch (error) {
+        logger.error('[GroupChatSocket] Failed to mark messages as read:', error);
+      }
+    });
+
+    // Leave a group room
+    socket.on('leave-group-chat', (groupId: string) => {
+      socket.leave(groupId);
+      logger.info(`🚪 User ${userId} left room: ${groupId}`);
     });
 
     // Handle sending message inside group chat
@@ -60,17 +81,52 @@ const socket = async (io: Server) => {
       if (!groupId || !text) return;
 
       try {
+        // Find active users currently in the group chat room to mark as read immediately
+        let activeUserIds: string[] = [];
+        try {
+          const activeSockets = await chatNamespace.in(groupId).fetchSockets();
+          activeUserIds = activeSockets.map((s: any) => String(s.data?.user?.authId));
+        } catch (err) {
+          // Ignore fetchSockets error
+        }
+
+        // Ensure sender is marked as read
+        if (!activeUserIds.includes(userId)) {
+          activeUserIds.push(userId);
+        }
+
         // Save group message to database
         const messageDoc = await GroupMessage.create({
           groupId,
           senderId: userId,
           text,
+          readBy: activeUserIds,
         });
 
         const populatedMessage = await messageDoc.populate('senderId', 'fullName email image');
 
         // Broadcast message to room
         chatNamespace.to(groupId).emit('new-group-message', populatedMessage);
+
+        // Emit unread count updates to offline/non-active members in real-time
+        const group = await Group.findById(groupId).select('members');
+        if (group) {
+          for (const memberId of group.members) {
+            const memberIdStr = String(memberId);
+            if (activeUserIds.includes(memberIdStr)) continue; // Already read
+
+            const count = await GroupMessage.countDocuments({
+              groupId,
+              senderId: { $ne: memberIdStr },
+              readBy: { $ne: memberIdStr },
+            });
+
+            chatNamespace.to(`user-${memberIdStr}`).emit('unread-count-update', {
+              groupId,
+              unreadCount: count,
+            });
+          }
+        }
       } catch (error) {
         logger.error('[GroupChatSocket] Failed to persist and broadcast message:', error);
       }

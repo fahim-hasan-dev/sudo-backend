@@ -5,6 +5,7 @@ export type IGroupMessage = {
   groupId: Types.ObjectId;
   senderId: Types.ObjectId;
   text: string;
+  readBy?: Types.ObjectId[];
   createdAt: Date;
   updatedAt: Date;
 };

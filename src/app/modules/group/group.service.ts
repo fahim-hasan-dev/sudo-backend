@@ -526,66 +526,14 @@ const confirmContributionPayment = async (stripeSessionId: string, transactionId
   }
 };
 
-// Track group payments
-const trackGroupPayments = async (groupId: string) => {
-  const group = await Group.findById(groupId).populate('members', 'fullName email');
-  if (!group) {
-    throw new ApiError(StatusCodes.NOT_FOUND, 'Group not found');
-  }
 
-  const currentPeriod = getCurrentPeriodNumber(group);
-  const totalPeriods = group.totalCycles * group.members.length;
-
-  const trackingDetails = [];
-
-  for (let period = 1; period <= totalPeriods; period++) {
-    const scheduleItem = group.rotationSchedule.find((item) => item.periodNumber === period);
-    const receiverId = scheduleItem?.receiverId;
-
-    // Filter active contributors
-    const contributors = group.members.filter((member) => String(member._id) !== String(receiverId));
-
-    const periodContributions = await Contribution.find({
-      groupId,
-      periodNumber: period,
-      status: 'paid',
-    });
-
-    const paidMembers = periodContributions.map((c) => String(c.senderId));
-
-    const memberDetails = contributors.map((member) => {
-      const hasPaid = paidMembers.includes(String(member._id));
-      return {
-        memberId: member._id,
-        name: (member as any).fullName,
-        email: (member as any).email,
-        status: hasPaid ? 'paid' : (period < currentPeriod ? 'overdue' : 'unpaid'),
-      };
-    });
-
-    trackingDetails.push({
-      periodNumber: period,
-      cycleNumber: scheduleItem?.cycleNumber,
-      dueDate: scheduleItem?.payoutDate,
-      receiverId,
-      status: scheduleItem?.status,
-      contributions: memberDetails,
-    });
-  }
-
-  return {
-    groupName: group.name,
-    currentPeriod,
-    totalCycles: group.totalCycles,
-    paymentFrequency: group.paymentFrequency,
-    schedule: trackingDetails,
-  };
-};
 
 // Get single group details
 const getGroupDetails = async (groupId: string, userId: string, queryPeriod?: string) => {
   const group = await Group.findById(groupId)
-    .populate('admin', 'fullName email');
+    .populate('admin', 'fullName email image photo')
+    .populate('members', 'fullName email image photo')
+    .populate('rotationSchedule.receiverId', 'fullName email image photo');
 
   if (!group) {
     throw new ApiError(StatusCodes.NOT_FOUND, 'Group not found');
@@ -652,7 +600,7 @@ const getGroupDetails = async (groupId: string, userId: string, queryPeriod?: st
       currentCycle = currentScheduleItem.cycleNumber;
 
       // Get current receiver info
-      currentReceiver = await User.findById(currentScheduleItem.receiverId).select('fullName email image');
+      currentReceiver = await User.findById(currentScheduleItem.receiverId).select('fullName email image photo');
 
       const receiverIdStr = String(currentScheduleItem.receiverId?._id || currentScheduleItem.receiverId);
       isCurrentReceiver = receiverIdStr === userId;
@@ -669,8 +617,8 @@ const getGroupDetails = async (groupId: string, userId: string, queryPeriod?: st
     currentPeriod = totalPeriods;
   }
 
-  // Convert to plain object and remove rotationSchedule so it's not sent to frontend
-  const { rotationSchedule, ...groupObj } = group.toObject();
+  // Convert to plain object with rotationSchedule included
+  const groupObj = group.toObject();
 
   return {
     group: groupObj,
@@ -971,7 +919,6 @@ export const GroupService = {
   startGroupRotation,
   payContribution,
   confirmContributionPayment,
-  trackGroupPayments,
   getGroupDetails,
   getCurrentPeriodNumber,
   getAllGroups,
